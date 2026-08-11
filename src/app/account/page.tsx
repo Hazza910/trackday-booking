@@ -1,33 +1,26 @@
-import Link from 'next/link';
-import { auth } from '@/lib/auth/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AccountPage() {
-  const { data: session } = await auth.getSession();
+  const user = await currentUser();
 
-  if (!session?.user) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-gray-900">
-        <h1 className="mb-4 text-4xl font-bold text-white">Not logged in</h1>
-        <div className="item-center flex gap-2">
-          <Link href="/auth/sign-up" className="inline-flex text-lg text-indigo-400 hover:underline">
-            Sign-up
-          </Link>
-          <Link href="/auth/sign-in" className="inline-flex text-lg text-indigo-400 hover:underline">
-            Sign-in
-          </Link>
-        </div>
-      </div>
-    );
+  // The proxy already gates /account, but re-check at the resource itself so
+  // the page is never readable if the matcher and the route ever diverge.
+  if (!user) {
+    const { redirectToSignIn } = await auth();
+    return redirectToSignIn();
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-gray-900">
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 bg-gray-900">
       <h1 className="mb-4 text-4xl text-white">
-        Logged in as <span className="font-bold underline">{session.user.name}</span>
+        Logged in as{' '}
+        <span className="font-bold underline">
+          {user.fullName ?? user.primaryEmailAddress?.emailAddress}
+        </span>
       </h1>
-      <p className="text-gray-400">{session.user.email}</p>
+      <p className="text-gray-400">{user.primaryEmailAddress?.emailAddress}</p>
     </div>
   );
 }
