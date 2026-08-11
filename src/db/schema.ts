@@ -36,6 +36,8 @@ export const listingStatusEnum = pgEnum('listing_status', [
 export const events = pgTable('events', {
   id: uuid('id').primaryKey().defaultRandom(),
   provider: providerEnum('provider').notNull(),
+  /** Provider's name for the event, e.g. "General Track Day". */
+  title: text('title').notNull(),
   circuit: text('circuit').notNull(),
   /** Calendar date of the track day — a day, not an instant. */
   eventDate: date('event_date').notNull(),
