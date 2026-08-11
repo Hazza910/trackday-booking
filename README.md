@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Trackday Resale
 
-## Getting Started
+A peer-to-peer resale marketplace for UK motorcycle track days.
 
-First, run the development server:
+Sellers list a track day place they can no longer use, buyers pick up a date
+that is often already sold out, and the place moves across using the
+provider's own name-change process. Listings attach to a curated directory of
+real provider events rather than free-text dates, so a buyer knows exactly
+which circuit, date and rider group they are buying into.
+
+## Why this exists
+
+Track day providers generally cannot refund a booking within 14 days of the
+event — but almost all of them will change the name on a booking for free.
+
+That gap is the whole product. A rider who breaks a bike, gets injured, or
+simply has work come up is otherwise left choosing between losing the full
+cost of the day or arranging a private sale through a forum thread or Facebook
+group, with no escrow and no protection on either side.
+
+Trackday Resale turns that informal scramble into a proper transaction:
+listings tied to verified events, payment held through Stripe, and a defined
+hand-off where the seller confirms the name change once the buyer has paid.
+The provider keeps a full grid, the seller recovers most of their money, and
+the buyer gets a place on a sold-out day.
+
+## Stack
+
+- **Next.js** (App Router) with TypeScript in strict mode
+- **Drizzle ORM** over **Neon** serverless Postgres
+- **Clerk** for authentication
+- **Stripe** for payments
+- **Tailwind CSS** for styling
+- **Vitest** and **Playwright** for testing
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app runs at http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Environment variables live in `.env.local` and are validated by `src/env.ts` —
+`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+and `CLERK_SECRET_KEY`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Database
 
-## Learn More
+```bash
+pnpm db:generate   # generate a migration from src/db/schema.ts
+pnpm db:migrate    # apply pending migrations
+pnpm db:studio     # browse the data
+```
 
-To learn more about Next.js, take a look at the following resources:
+Migrations run over the direct (non-pooled) Neon connection; the app itself
+uses the pooled one.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Roadmap
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Automated event ingestion** — a daily cron job that fetches provider
+  schedules and uses the Claude API to extract structured events (circuit,
+  date, group levels, source URL) into the directory, replacing manual entry.
+- **Stripe Connect seller payouts** — pay sellers directly once a transfer is
+  confirmed, with funds held until the name change is done.
+- **Provider partnerships** — work with organisers such as MSV and No Limits
+  to formalise the transfer step, ideally reaching direct API confirmation of
+  a name change instead of a manual seller declaration.

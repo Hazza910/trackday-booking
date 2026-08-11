@@ -1,4 +1,10 @@
-# Trackday Booking
+# Trackday Resale
+
+A peer-to-peer resale marketplace for UK motorcycle track days. Sellers list
+track days they can no longer attend, buyers purchase them, and the seller then
+transfers the booking to the buyer using the provider's free name-change
+process. Listings attach to a curated directory of provider events (currently
+MSV and No Limits) rather than to free-text dates.
 
 ## Rules (read first)
 - Auth is Clerk. Never add or reinstate @neondatabase/auth.
