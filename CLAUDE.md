@@ -14,6 +14,7 @@ MSV and No Limits) rather than to free-text dates.
 - Never modify existing migration files — generate new ones.
 - Flag race conditions or unhandled failure paths; don't work around them.
 - All work goes on a feature branch (`feat/`, `fix/`, `docs/` prefix) with a PR to main. Never commit directly to main.
+- Open PRs with `gh`, but never merge them — merging is done by a human after review.
 
 ## Stack
 Next.js App Router, TypeScript strict, Drizzle + Postgres (Neon),
