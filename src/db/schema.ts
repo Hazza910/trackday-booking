@@ -1,5 +1,5 @@
 import {
-  boolean,
+  date,
   index,
   integer,
   pgEnum,
@@ -9,55 +9,73 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-/** Lifecycle of a booking. Enforced by Postgres, not just by application code. */
-export const bookingStatus = pgEnum('booking_status', [
-  'pending',
-  'confirmed',
-  'cancelled',
+/** Track day organisers whose events we mirror into the directory. */
+export const providerEnum = pgEnum('provider', ['msv', 'nolimits']);
+
+/** Rider group a track day place is booked into. */
+export const groupLevelEnum = pgEnum('group_level', [
+  'novice',
+  'intermediate',
+  'advanced',
 ]);
 
-/** A bookable offering, e.g. "Novice Track Day". */
-export const services = pgTable('services', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  slug: text('slug').notNull().unique(),
-  name: text('name').notNull(),
-  description: text('description'),
-  durationMinutes: integer('duration_minutes').notNull(),
-  /** Money is stored as integer pence, never a float (see CLAUDE.md). */
-  priceInPence: integer('price_in_pence').notNull(),
-  isActive: boolean('is_active').notNull().default(true),
-});
+/**
+ * Lifecycle of a listing:
+ * active → pending (buyer holding) → paid → transferred, or withdrawn by the
+ * seller at any point before payment.
+ */
+export const listingStatusEnum = pgEnum('listing_status', [
+  'active',
+  'pending',
+  'paid',
+  'transferred',
+  'withdrawn',
+]);
 
-/** A specific point in time at which a service can be booked. */
-export const slots = pgTable(
-  'slots',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    serviceId: uuid('service_id')
-      .notNull()
-      .references(() => services.id, { onDelete: 'restrict' }),
-    /** timestamptz — stored UTC (see CLAUDE.md). */
-    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
-    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
-    capacity: integer('capacity').notNull().default(1),
-  },
-  (table) => [index('slots_starts_at_idx').on(table.startsAt)]
-);
-
-/** A user's claim on a slot, from initial hold through to paid. */
-export const bookings = pgTable('bookings', {
+/** Curated directory of provider track days that listings attach to. */
+export const events = pgTable('events', {
   id: uuid('id').primaryKey().defaultRandom(),
-  slotId: uuid('slot_id')
-    .notNull()
-    .references(() => slots.id, { onDelete: 'restrict' }),
-  /** Clerk user ID (e.g. `user_2abc...`), not a local FK. */
-  userId: text('user_id').notNull(),
-  status: bookingStatus('status').notNull(),
-  /** When an unpaid hold lapses; null once the booking is settled. */
-  holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }),
-  stripeSessionId: text('stripe_session_id').unique(),
-  amountPaidInPence: integer('amount_paid_in_pence'),
+  provider: providerEnum('provider').notNull(),
+  circuit: text('circuit').notNull(),
+  /** Calendar date of the track day — a day, not an instant. */
+  eventDate: date('event_date').notNull(),
+  sourceUrl: text('source_url').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
+
+/** A seller's place at an event, offered for resale. */
+export const listings = pgTable(
+  'listings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'restrict' }),
+    /** Clerk user ID of the seller. */
+    sellerId: text('seller_id').notNull(),
+    groupLevel: groupLevelEnum('group_level').notNull(),
+    /** Money is stored as integer pence, never a float (see CLAUDE.md). */
+    askingPriceInPence: integer('asking_price_in_pence').notNull(),
+    /** What the seller originally paid, shown as a reference price. */
+    originalPriceInPence: integer('original_price_in_pence').notNull(),
+    notes: text('notes'),
+    status: listingStatusEnum('status').notNull().default('active'),
+    /** When a buyer's hold lapses; null unless a hold is in flight. */
+    holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }),
+    /** Clerk user ID of the buyer; null until a hold is taken. */
+    buyerId: text('buyer_id'),
+    stripeSessionId: text('stripe_session_id').unique(),
+    amountPaidInPence: integer('amount_paid_in_pence'),
+    /** Set once the seller confirms the provider name change is done. */
+    transferredAt: timestamp('transferred_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('listings_status_idx').on(table.status),
+    index('listings_event_id_idx').on(table.eventId),
+  ]
+);
