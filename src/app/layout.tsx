@@ -39,6 +39,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             </Link>
             <nav className="flex items-center gap-3">
               <Link
+                href="/listings"
+                className="rounded-md px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Paddock Board
+              </Link>
+              <Link
                 href="/sell"
                 className="rounded-md px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10"
               >
