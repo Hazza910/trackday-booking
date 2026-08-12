@@ -38,6 +38,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               Trackday Booking
             </Link>
             <nav className="flex items-center gap-3">
+              <Link
+                href="/sell"
+                className="rounded-md px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Sell a track day
+              </Link>
               <Show when="signed-out">
                 <SignInButton mode="modal">
                   <button className="rounded-md px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10">

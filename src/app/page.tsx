@@ -1,39 +1,15 @@
 import { asc, gte } from 'drizzle-orm';
 import { db } from '@/db';
 import { events } from '@/db/schema';
+import {
+  PROVIDER_LABEL,
+  dateFormatter,
+  groupByMonth,
+  parseEventDate,
+  todayIso,
+} from '@/lib/events';
 
 export const dynamic = 'force-dynamic';
-
-const PROVIDER_LABEL = {
-  msv: 'MSV',
-  nolimits: 'No Limits',
-} as const;
-
-/**
- * `event_date` is a Postgres `date`, which Drizzle returns as `YYYY-MM-DD`.
- * Format it in UTC so a calendar date never shifts by a day.
- */
-const dateFormatter = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'short',
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
-
-const monthFormatter = new Intl.DateTimeFormat('en-GB', {
-  month: 'long',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
-
-function parseEventDate(isoDate: string) {
-  return new Date(`${isoDate}T00:00:00Z`);
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export default async function Home() {
   const upcoming = await db
@@ -42,17 +18,7 @@ export default async function Home() {
     .where(gte(events.eventDate, todayIso()))
     .orderBy(asc(events.eventDate), asc(events.circuit), asc(events.title));
 
-  // Group into months, preserving the date ordering from the query.
-  const months: Array<{ label: string; events: typeof upcoming }> = [];
-  for (const event of upcoming) {
-    const label = monthFormatter.format(parseEventDate(event.eventDate));
-    const last = months.at(-1);
-    if (last?.label === label) {
-      last.events.push(event);
-    } else {
-      months.push({ label, events: [event] });
-    }
-  }
+  const months = groupByMonth(upcoming);
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-16">

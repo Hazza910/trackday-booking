@@ -10,15 +10,17 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { GROUP_LEVELS } from '../lib/group-levels';
+
 /** Track day organisers whose events we mirror into the directory. */
 export const providerEnum = pgEnum('provider', ['msv', 'nolimits']);
 
-/** Rider group a track day place is booked into. */
-export const groupLevelEnum = pgEnum('group_level', [
-  'novice',
-  'intermediate',
-  'advanced',
-]);
+/**
+ * Rider group a track day place is booked into. Built from the shared tuple
+ * so the enum and the form offer exactly the same values — the listing form
+ * cannot import this file, since that would pull Drizzle into the browser.
+ */
+export const groupLevelEnum = pgEnum('group_level', GROUP_LEVELS);
 
 /**
  * Lifecycle of a listing:
@@ -79,6 +81,11 @@ export const listings = pgTable(
     askingPriceInPence: integer('asking_price_in_pence').notNull(),
     /** What the seller originally paid, shown as a reference price. */
     originalPriceInPence: integer('original_price_in_pence').notNull(),
+    /**
+     * The seller's reference with the provider, used to action the name
+     * change. Shown to nobody but the seller until a sale completes.
+     */
+    bookingReference: text('booking_reference').notNull(),
     notes: text('notes'),
     status: listingStatusEnum('status').notNull().default('active'),
     /** When a buyer's hold lapses; null unless a hold is in flight. */
