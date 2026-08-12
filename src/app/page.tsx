@@ -1,8 +1,10 @@
 import { and, asc, count, eq, gte } from 'drizzle-orm';
 import Link from 'next/link';
 
+import { MonthCalendar } from '@/components/month-calendar';
 import { db } from '@/db';
 import { events, listings } from '@/db/schema';
+import { buildMonthGrids } from '@/lib/calendar';
 import {
   PROVIDER_LABEL,
   dateFormatter,
@@ -10,7 +12,12 @@ import {
   parseEventDate,
   todayIso,
 } from '@/lib/events';
-import { eventAnchorId, forSaleLabel } from '@/lib/listings-view';
+import {
+  countByDate,
+  eventAnchorId,
+  forSaleLabel,
+  withDateAnchors,
+} from '@/lib/listings-view';
 import { accentBadgeClassName, badgeClassName } from '@/lib/ui';
 
 export const dynamic = 'force-dynamic';
@@ -41,7 +48,10 @@ export default async function Home() {
     .groupBy(events.id)
     .orderBy(asc(events.eventDate), asc(events.circuit), asc(events.title));
 
-  const months = groupByMonth(upcoming);
+  // The calendar counts events per day; the anchors give each of those days
+  // somewhere to land without adding a heading per date to a list of 86.
+  const calendarMonths = buildMonthGrids(countByDate(upcoming));
+  const months = groupByMonth(withDateAnchors(upcoming));
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-16">
@@ -58,7 +68,9 @@ export default async function Home() {
           No upcoming events just now. Please check back soon.
         </p>
       ) : (
-        months.map((month) => (
+        <>
+          <MonthCalendar months={calendarMonths} noun="event" />
+          {months.map((month) => (
           <section key={month.label} className="mt-10">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               {month.label}
@@ -67,7 +79,8 @@ export default async function Home() {
               {month.events.map((event) => (
                 <li
                   key={event.id}
-                  className="flex flex-col gap-1 rounded-lg border border-black/10 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 dark:border-white/15"
+                  id={event.anchorId ?? undefined}
+                  className="flex scroll-mt-6 flex-col gap-1 rounded-lg border border-black/10 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 dark:border-white/15"
                 >
                   <span className="flex flex-col gap-1">
                     <span className="flex flex-wrap items-center gap-2">
@@ -108,7 +121,8 @@ export default async function Home() {
               ))}
             </ul>
           </section>
-        ))
+          ))}
+        </>
       )}
     </main>
   );

@@ -5,6 +5,7 @@ import {
   eventAnchorId,
   forSaleLabel,
   groupByMonthAndDay,
+  withDateAnchors,
   withEventAnchors,
 } from './listings-view';
 
@@ -64,6 +65,60 @@ describe('withEventAnchors', () => {
 
   it('handles an empty list', () => {
     expect(withEventAnchors([])).toEqual([]);
+  });
+});
+
+describe('withDateAnchors', () => {
+  it('tags only the first row of each date', () => {
+    const tagged = withDateAnchors([
+      { id: '1', eventDate: '2026-08-12' },
+      { id: '2', eventDate: '2026-08-12' },
+      { id: '3', eventDate: '2026-08-17' },
+    ]);
+
+    expect(tagged.map((row) => row.anchorId)).toEqual([
+      'date-2026-08-12',
+      null,
+      'date-2026-08-17',
+    ]);
+  });
+
+  it('gives every date in the calendar a landing place', () => {
+    // Whatever the grid links to must exist in the list, or the jump is a
+    // no-op that leaves the reader at the top of the page.
+    const rows = [
+      { id: '1', eventDate: '2026-08-12' },
+      { id: '2', eventDate: '2026-08-12' },
+      { id: '3', eventDate: '2026-08-17' },
+      { id: '4', eventDate: '2026-09-02' },
+    ];
+    const anchors = new Set(
+      withDateAnchors(rows)
+        .map((row) => row.anchorId)
+        .filter((id) => id !== null)
+    );
+
+    for (const date of new Set(rows.map((row) => row.eventDate))) {
+      expect(anchors.has(`date-${date}`)).toBe(true);
+    }
+  });
+
+  it('stays correct when a date’s rows are not contiguous', () => {
+    const tagged = withDateAnchors([
+      { id: '1', eventDate: '2026-08-12' },
+      { id: '2', eventDate: '2026-08-17' },
+      { id: '3', eventDate: '2026-08-12' },
+    ]);
+
+    expect(tagged.map((row) => row.anchorId)).toEqual([
+      'date-2026-08-12',
+      'date-2026-08-17',
+      null,
+    ]);
+  });
+
+  it('handles an empty list', () => {
+    expect(withDateAnchors([])).toEqual([]);
   });
 });
 

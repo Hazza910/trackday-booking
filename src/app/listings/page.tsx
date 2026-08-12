@@ -1,6 +1,7 @@
 import { and, asc, eq, gte } from 'drizzle-orm';
 import Link from 'next/link';
 
+import { MonthCalendar } from '@/components/month-calendar';
 import { db } from '@/db';
 import { events, listings } from '@/db/schema';
 import { buildMonthGrids, dateAnchorId } from '@/lib/calendar';
@@ -14,7 +15,6 @@ import { SELLER_FALLBACK_NAME } from '@/lib/seller-names';
 import { resolveSellerNames } from '@/lib/sellers';
 
 import { ListingCard } from './listing-card';
-import { MonthCalendar } from './month-calendar';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +56,7 @@ export default async function ListingsPage() {
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-16">
       <h1 className="text-3xl font-semibold tracking-tight">
-        Track days for sale
+        Paddock Board
       </h1>
       <p className="mt-3 max-w-prose text-zinc-600 dark:text-zinc-400">
         Places at UK track days, sold on by riders who can no longer make the

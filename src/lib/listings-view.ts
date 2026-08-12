@@ -1,3 +1,4 @@
+import { dateAnchorId } from './calendar';
 import { dateFormatter, monthFormatter, parseEventDate } from './events';
 
 /** Presentation helpers for the buyer-facing listings view. */
@@ -29,6 +30,26 @@ export function withEventAnchors<T extends { eventId: string }>(
     }
     seen.add(row.eventId);
     return { ...row, anchorId: eventAnchorId(row.eventId) };
+  });
+}
+
+/**
+ * Tags the first row of each date with its calendar anchor, so a day in the
+ * month grid can jump into a flat list that has no per-day headings — which
+ * is how the homepage stays one row per event rather than growing a heading
+ * for each of its ~60 dates.
+ */
+export function withDateAnchors<T extends { eventDate: string }>(
+  rows: readonly T[]
+): Array<T & { anchorId: string | null }> {
+  const seen = new Set<string>();
+
+  return rows.map((row) => {
+    if (seen.has(row.eventDate)) {
+      return { ...row, anchorId: null };
+    }
+    seen.add(row.eventDate);
+    return { ...row, anchorId: dateAnchorId(row.eventDate) };
   });
 }
 
