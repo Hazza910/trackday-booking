@@ -1,17 +1,23 @@
+import { sql } from 'drizzle-orm';
+
 import { db } from './index';
 import { events } from './schema';
 
 /**
  * Seeds the curated event directory from published provider schedules.
  *
- * Idempotency: delete-and-reinsert. The directory is a mirror of the
- * providers' own listings, so the stored rows should always match the source
- * exactly — including removals. Row ids are not stable across runs.
+ * Idempotency: upsert on the natural key (provider, circuit, event_date,
+ * title), backed by the unique constraint added in migration 0004. Existing
+ * rows are updated in place and new ones inserted, so `events.id` is stable
+ * across runs and listings can safely reference these rows —
+ * `listings.event_id` is `ON DELETE restrict`, which the previous
+ * delete-and-reinsert would have hit the moment a seller listed.
  *
- * NOTE: `listings.event_id` is `ON DELETE restrict`, so this wipe only works
- * while no listing references an event. Once sellers list against these rows,
- * this script must become an upsert keyed on
- * (provider, circuit, event_date, title).
+ * Not handled: rows in the database that have dropped out of the source
+ * schedule (a cancelled event). They are reported but never deleted — a
+ * delete would fail against any listing that references the event, and
+ * cancelling an event that someone has sold a place at needs a human
+ * decision, not a seed script.
  *
  * Transcription rules applied to the source listings:
  * - Track layout folded into the circuit name ("Donington Park GP").
@@ -154,6 +160,18 @@ const NOLIMITS_EVENTS: SeedEvent[] = [
   { eventDate: '2026-10-31', title: 'Track Day', circuit: 'Donington Park' },
 ];
 
+/** The natural key, as a string, for comparing seed rows against stored ones. */
+function naturalKey(event: {
+  provider: string;
+  circuit: string;
+  eventDate: string;
+  title: string;
+}) {
+  return [event.provider, event.circuit, event.eventDate, event.title].join(
+    ' '
+  );
+}
+
 async function seed() {
   const rows = [
     ...MSV_EVENTS.map((event) => ({
@@ -170,13 +188,60 @@ async function seed() {
     })),
   ];
 
-  await db.delete(events);
-  await db.insert(events).values(rows);
+  // Postgres rejects an ON CONFLICT DO UPDATE whose own VALUES list hits the
+  // same key twice ("cannot affect row a second time"). Catch that here, where
+  // the message can name the offending event.
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const row of rows) {
+    const key = naturalKey(row);
+    if (seen.has(key)) {
+      duplicates.add(key);
+    }
+    seen.add(key);
+  }
+  if (duplicates.size > 0) {
+    throw new Error(`duplicate seed keys: ${[...duplicates].join('; ')}`);
+  }
+
+  const stored = await db
+    .select({
+      provider: events.provider,
+      circuit: events.circuit,
+      eventDate: events.eventDate,
+      title: events.title,
+    })
+    .from(events);
+  const storedKeys = new Set(stored.map(naturalKey));
+  const seedKeys = new Set(rows.map(naturalKey));
+
+  await db
+    .insert(events)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [events.provider, events.circuit, events.eventDate, events.title],
+      set: { sourceUrl: sql`excluded.source_url` },
+    });
+
+  const updated = rows.filter((row) => storedKeys.has(naturalKey(row))).length;
+  const inserted = rows.length - updated;
+  const stale = stored.filter((row) => !seedKeys.has(naturalKey(row)));
 
   console.log(
-    `events: ${rows.length} inserted ` +
+    `events: ${inserted} inserted, ${updated} updated ` +
       `(msv ${MSV_EVENTS.length}, nolimits ${NOLIMITS_EVENTS.length})`
   );
+  if (stale.length > 0) {
+    console.warn(
+      `${stale.length} stored event(s) are no longer in the source schedule ` +
+        `and were left untouched:`
+    );
+    for (const row of stale) {
+      console.warn(
+        `  ${row.provider} | ${row.circuit} | ${row.eventDate} | ${row.title}`
+      );
+    }
+  }
 }
 
 seed()

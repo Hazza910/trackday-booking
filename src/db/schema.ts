@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -33,19 +34,35 @@ export const listingStatusEnum = pgEnum('listing_status', [
 ]);
 
 /** Curated directory of provider track days that listings attach to. */
-export const events = pgTable('events', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  provider: providerEnum('provider').notNull(),
-  /** Provider's name for the event, e.g. "General Track Day". */
-  title: text('title').notNull(),
-  circuit: text('circuit').notNull(),
-  /** Calendar date of the track day — a day, not an instant. */
-  eventDate: date('event_date').notNull(),
-  sourceUrl: text('source_url').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const events = pgTable(
+  'events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    provider: providerEnum('provider').notNull(),
+    /** Provider's name for the event, e.g. "General Track Day". */
+    title: text('title').notNull(),
+    circuit: text('circuit').notNull(),
+    /** Calendar date of the track day — a day, not an instant. */
+    eventDate: date('event_date').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    /**
+     * Natural key of a provider event, and the conflict target the seed
+     * upserts on. A provider can run several events at one circuit on one day
+     * (a day and an evening session), so the title is part of the key.
+     */
+    unique('events_provider_circuit_event_date_title_unique').on(
+      table.provider,
+      table.circuit,
+      table.eventDate,
+      table.title
+    ),
+  ]
+);
 
 /** A seller's place at an event, offered for resale. */
 export const listings = pgTable(

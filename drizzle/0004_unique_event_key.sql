@@ -1,0 +1,1 @@
+ALTER TABLE "events" ADD CONSTRAINT "events_provider_circuit_event_date_title_unique" UNIQUE("provider","circuit","event_date","title");
