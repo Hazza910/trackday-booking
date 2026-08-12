@@ -1,0 +1,1 @@
+ALTER TABLE "listings" ADD COLUMN "booking_reference" text NOT NULL;
