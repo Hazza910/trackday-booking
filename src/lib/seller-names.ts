@@ -6,20 +6,19 @@
  * environment with nothing to mock.
  */
 
-/** Shown when a seller has no public name, or Clerk cannot be reached. */
+/** Shown when a seller has no public name, or their account is gone. */
 export const SELLER_FALLBACK_NAME = 'A seller';
-
-/**
- * Clerk's hard cap: `UserListParams.userId` is documented as "Accepts up to
- * 100 user IDs". It is also the `limit` we must pass — that parameter
- * defaults to 10, so a full batch would otherwise resolve only ten sellers.
- */
-export const CLERK_USER_ID_BATCH = 100;
 
 /** The only fields we are willing to read. Clerk's `User` satisfies it. */
 export type SellerNameFields = {
   readonly username: string | null;
   readonly firstName: string | null;
+  /**
+   * Set once the seller's Clerk account is deleted. A name may still be
+   * stored on a mid-sale listing, kept deliberately as dispute evidence — it
+   * simply must not be shown to the public.
+   */
+  readonly deletedAt?: Date | null;
 };
 
 /**
@@ -31,6 +30,14 @@ export type SellerNameFields = {
  * the types say `string | null`, but nothing stops `''`.
  */
 export function sellerDisplayName(user: SellerNameFields): string {
+  // A deleted account is anonymous regardless of what is still stored. The
+  // `user.deleted` webhook erases the name where it is allowed to, but it is
+  // forbidden from touching mid-sale rows, so those keep a name that must not
+  // be rendered.
+  if (user.deletedAt) {
+    return SELLER_FALLBACK_NAME;
+  }
+
   const username = user.username?.trim();
   if (username) {
     return username;
@@ -44,17 +51,3 @@ export function sellerDisplayName(user: SellerNameFields): string {
   return SELLER_FALLBACK_NAME;
 }
 
-/** De-duplicates, preserves first-seen order, splits into request-sized batches. */
-export function chunkUserIds(
-  ids: readonly string[],
-  size: number = CLERK_USER_ID_BATCH
-): string[][] {
-  const distinct = [...new Set(ids)];
-  const chunks: string[][] = [];
-
-  for (let index = 0; index < distinct.length; index += size) {
-    chunks.push(distinct.slice(index, index + size));
-  }
-
-  return chunks;
-}

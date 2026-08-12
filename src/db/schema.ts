@@ -76,6 +76,34 @@ export const listings = pgTable(
       .references(() => events.id, { onDelete: 'restrict' }),
     /** Clerk user ID of the seller. */
     sellerId: text('seller_id').notNull(),
+    /**
+     * The seller's public name fields, copied from Clerk when the listing is
+     * created and kept current by the `user.updated` webhook.
+     *
+     * Denormalised so rendering a listing never calls Clerk: a public page
+     * that hits the Backend API lets anonymous traffic burn a quota shared
+     * with signed-in users. Stored raw rather than pre-formatted so the
+     * display rule can change without a backfill — see `sellerDisplayName`
+     * in src/lib/seller-names.ts.
+     *
+     * Nullable throughout: a seller may have neither set, and both are blanked
+     * when the account is deleted.
+     */
+    sellerUsername: text('seller_username'),
+    sellerFirstName: text('seller_first_name'),
+    /**
+     * Set when the seller's Clerk account is deleted.
+     *
+     * A tombstone, not a status. Webhook deliveries are neither ordered nor
+     * once-only: a `user.updated` that failed earlier can be retried hours
+     * later and land *after* the `user.deleted` that erased the name, writing
+     * it straight back — and `user.deleted` never fires again to undo that.
+     * The update path refuses to write to a row carrying this.
+     *
+     * Set on mid-sale rows too. It records the state of the account, not of
+     * the sale, so it can guard them without transitioning them.
+     */
+    sellerDeletedAt: timestamp('seller_deleted_at', { withTimezone: true }),
     groupLevel: groupLevelEnum('group_level').notNull(),
     /** Money is stored as integer pence, never a float (see CLAUDE.md). */
     askingPriceInPence: integer('asking_price_in_pence').notNull(),

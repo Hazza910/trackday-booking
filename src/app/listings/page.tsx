@@ -11,38 +11,34 @@ import {
   groupByMonthAndDay,
   withEventAnchors,
 } from '@/lib/listings-view';
-import { SELLER_FALLBACK_NAME } from '@/lib/seller-names';
-import { resolveSellerNames } from '@/lib/sellers';
+import { sellerDisplayName } from '@/lib/seller-names';
 
 import { ListingCard } from './listing-card';
 
 /**
- * Per-request, and not by choice.
+ * Per-request, because the root layout's Clerk `Show` makes every route in
+ * this app dynamic regardless of what is declared here.
  *
- * `export const revalidate` was tried here and does nothing: the root layout's
- * Clerk `Show` reads auth state, which makes every route in the app dynamic —
- * `next build` marks even `/_not-found` as server-rendered on demand, and that
- * page fetches nothing. So this page cannot be cached at the route level while
- * the header renders signed-in state.
- *
- * That leaves the Clerk fan-out below uncapped against anonymous traffic:
- * every hit on this public page costs one batch of Backend API calls, against
- * a quota shared with signed-in paths like `/account`. Flagged in the PR
- * rather than papered over — the fix is either caching the name lookup with a
- * request-independent client, or denormalising the display name onto
- * `listings` from a Clerk webhook, which needs a migration.
+ * That used to matter: this page called the Clerk Backend API once per render,
+ * on a public route, against a quota shared with signed-in paths. The seller
+ * name is now denormalised onto `listings` and kept current by the
+ * `user.updated` webhook, so rendering the board is one database query and
+ * nothing else.
  */
 export const dynamic = 'force-dynamic';
 
 export default async function ListingsPage() {
   // Columns are listed explicitly: bookingReference, buyerId, stripeSessionId
-  // and holdExpiresAt have no business on a public page. sellerId is selected
-  // only to feed the Clerk batch, and never reaches the card.
+  // and holdExpiresAt have no business on a public page. sellerId is not
+  // selected at all any more: the seller's name is denormalised onto the row,
+  // so nothing here needs their identity.
   const rows = await db
     .select({
       id: listings.id,
       eventId: listings.eventId,
-      sellerId: listings.sellerId,
+      sellerUsername: listings.sellerUsername,
+      sellerFirstName: listings.sellerFirstName,
+      sellerDeletedAt: listings.sellerDeletedAt,
       groupLevel: listings.groupLevel,
       askingPriceInPence: listings.askingPriceInPence,
       originalPriceInPence: listings.originalPriceInPence,
@@ -66,9 +62,6 @@ export default async function ListingsPage() {
     // for a long while; when it stops being enough, this needs paging rather
     // than a bigger number.
     .limit(500);
-
-  // One batched lookup for the whole page rather than one call per listing.
-  const sellerNames = await resolveSellerNames(rows.map((row) => row.sellerId));
 
   const months = groupByMonthAndDay(withEventAnchors(rows));
   const calendarMonths = buildMonthGrids(countByDate(rows));
@@ -133,8 +126,11 @@ export default async function ListingsPage() {
                             askingPriceInPence: row.askingPriceInPence,
                             originalPriceInPence: row.originalPriceInPence,
                             notes: row.notes,
-                            sellerName:
-                              sellerNames.get(row.sellerId) ?? SELLER_FALLBACK_NAME,
+                            sellerName: sellerDisplayName({
+                              username: row.sellerUsername,
+                              firstName: row.sellerFirstName,
+                              deletedAt: row.sellerDeletedAt,
+                            }),
                           }}
                         />
                       </li>

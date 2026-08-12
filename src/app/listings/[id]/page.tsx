@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { db } from '@/db';
 import { events, listings } from '@/db/schema';
 import { dateFormatter, parseEventDate } from '@/lib/events';
-import { resolveSellerName } from '@/lib/sellers';
+import { sellerDisplayName } from '@/lib/seller-names';
 
 import { ListingCard, ListingCardRow } from '../listing-card';
 
@@ -26,6 +26,9 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
     .select({
       id: listings.id,
       sellerId: listings.sellerId,
+      sellerUsername: listings.sellerUsername,
+      sellerFirstName: listings.sellerFirstName,
+      sellerDeletedAt: listings.sellerDeletedAt,
       groupLevel: listings.groupLevel,
       askingPriceInPence: listings.askingPriceInPence,
       originalPriceInPence: listings.originalPriceInPence,
@@ -49,7 +52,11 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
 
   const { userId } = await auth();
   const isSeller = userId !== null && userId === listing.sellerId;
-  const sellerName = await resolveSellerName(listing.sellerId);
+  const sellerName = sellerDisplayName({
+    username: listing.sellerUsername,
+    firstName: listing.sellerFirstName,
+    deletedAt: listing.sellerDeletedAt,
+  });
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-16">
