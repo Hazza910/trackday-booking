@@ -1,13 +1,49 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  CLERK_USER_ID_BATCH,
-  SELLER_FALLBACK_NAME,
-  chunkUserIds,
-  sellerDisplayName,
-} from './seller-names';
+import { SELLER_FALLBACK_NAME, sellerDisplayName } from './seller-names';
 
 describe('sellerDisplayName', () => {
+  describe('a deleted account is anonymous whatever is still stored', () => {
+    // The `user.deleted` webhook is forbidden from touching mid-sale rows, so
+    // those keep a real name in the database as dispute evidence. It must not
+    // reach a reader.
+    it('hides a username that is still on the row', () => {
+      expect(
+        sellerDisplayName({
+          username: 'fastharry',
+          firstName: 'Harry',
+          deletedAt: new Date('2026-08-12T00:00:00Z'),
+        })
+      ).toBe(SELLER_FALLBACK_NAME);
+    });
+
+    it('hides a first name that is still on the row', () => {
+      expect(
+        sellerDisplayName({
+          username: null,
+          firstName: 'Harry',
+          deletedAt: new Date('2026-08-12T00:00:00Z'),
+        })
+      ).toBe(SELLER_FALLBACK_NAME);
+    });
+
+    it('still shows the name while the account is live', () => {
+      expect(
+        sellerDisplayName({
+          username: 'fastharry',
+          firstName: 'Harry',
+          deletedAt: null,
+        })
+      ).toBe('fastharry');
+    });
+
+    it('treats an absent deletedAt as live', () => {
+      expect(
+        sellerDisplayName({ username: 'fastharry', firstName: 'Harry' })
+      ).toBe('fastharry');
+    });
+  });
+
   it('prefers the username', () => {
     expect(sellerDisplayName({ username: 'fastharry', firstName: 'Harry' })).toBe(
       'fastharry'
@@ -81,42 +117,5 @@ describe('sellerDisplayName', () => {
         SELLER_FALLBACK_NAME
       );
     });
-  });
-});
-
-describe('chunkUserIds', () => {
-  it('returns nothing for no ids', () => {
-    expect(chunkUserIds([])).toEqual([]);
-  });
-
-  it('keeps a small set in one batch', () => {
-    expect(chunkUserIds(['user_a', 'user_b'])).toEqual([['user_a', 'user_b']]);
-  });
-
-  it('de-duplicates while preserving first-seen order', () => {
-    expect(chunkUserIds(['user_b', 'user_a', 'user_b', 'user_a'])).toEqual([
-      ['user_b', 'user_a'],
-    ]);
-  });
-
-  it('splits at Clerk’s 100-id cap', () => {
-    const ids = Array.from({ length: 250 }, (_, index) => `user_${index}`);
-    const chunks = chunkUserIds(ids);
-
-    expect(chunks).toHaveLength(3);
-    expect(chunks[0]).toHaveLength(CLERK_USER_ID_BATCH);
-    expect(chunks[1]).toHaveLength(CLERK_USER_ID_BATCH);
-    expect(chunks[2]).toHaveLength(50);
-    expect(chunks.flat()).toHaveLength(250);
-  });
-
-  it('counts distinct ids, not listings', () => {
-    // 300 listings, all from the same seller, is still one request.
-    const ids = Array.from({ length: 300 }, () => 'user_same');
-    expect(chunkUserIds(ids)).toEqual([['user_same']]);
-  });
-
-  it('honours a smaller batch size', () => {
-    expect(chunkUserIds(['a', 'b', 'c'], 2)).toEqual([['a', 'b'], ['c']]);
   });
 });

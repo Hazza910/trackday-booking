@@ -12,7 +12,8 @@
     "db:generate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs migrate",
     "db:studio": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs studio",
-    "db:seed": "tsx --env-file=.env.local src/db/seed.ts"
+    "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
+    "db:backfill-seller-names": "tsx --env-file=.env.local src/db/backfill-seller-names.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.7.1",

@@ -1,12 +1,16 @@
 'use server';
 
-import { auth } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { and, eq, gte } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
 import { db } from '@/db';
 import { events, listings } from '@/db/schema';
+import {
+  BLANK_SELLER_COLUMNS,
+  type SellerNameColumns,
+} from '@/lib/clerk-webhook';
 import { todayIso } from '@/lib/events';
 import type {
   ListingFormState,
@@ -39,12 +43,34 @@ function readValues(formData: FormData): ListingFormValues {
 type InsertResult = { ok: true; id: string } | { ok: false };
 
 /**
+ * Reads the seller's public name fields for denormalising onto the listing.
+ *
+ * A failure here must not cost the seller their listing, so it degrades to no
+ * name — the listing shows "A seller" until their next profile change fires
+ * the `user.updated` webhook. Flagged in the PR: nothing re-syncs a listing
+ * whose capture failed and whose owner never edits their profile again.
+ */
+async function captureSellerName(): Promise<SellerNameColumns> {
+  try {
+    const user = await currentUser();
+    return {
+      sellerUsername: user?.username?.trim() || null,
+      sellerFirstName: user?.firstName?.trim() || null,
+    };
+  } catch (error: unknown) {
+    console.error('createListing: could not read the seller name', error);
+    return BLANK_SELLER_COLUMNS;
+  }
+}
+
+/**
  * Isolated so that `redirect` — which signals by throwing — never has to sit
  * inside a `try` block.
  */
 async function insertListing(
   input: ListingInput,
-  sellerId: string
+  sellerId: string,
+  sellerName: SellerNameColumns
 ): Promise<InsertResult> {
   try {
     const [created] = await db
@@ -52,6 +78,8 @@ async function insertListing(
       .values({
         eventId: input.eventId,
         sellerId,
+        sellerUsername: sellerName.sellerUsername,
+        sellerFirstName: sellerName.sellerFirstName,
         groupLevel: input.groupLevel,
         askingPriceInPence: input.askingPrice,
         originalPriceInPence: input.originalPrice,
@@ -118,7 +146,14 @@ export async function createListing(
     };
   }
 
-  const inserted = await insertListing(parsed.data, userId);
+  // The seller's name is copied onto the listing here so that rendering one
+  // never has to call Clerk. This is the only Clerk lookup in the flow, and it
+  // happens on a mutation rather than on every page view.
+  const inserted = await insertListing(
+    parsed.data,
+    userId,
+    await captureSellerName()
+  );
   if (!inserted.ok) {
     return {
       formError: 'Could not save your listing. Please try again.',
