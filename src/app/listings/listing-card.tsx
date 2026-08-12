@@ -36,7 +36,8 @@ type ListingCardProps = { readonly listing: ListingCardData } & (
   | {
       /** Index view: the whole card is a link to the listing. */
       readonly href: string;
-      readonly headingLevel?: 'h3';
+      /** The index nests cards under a day heading, so the card sits below it. */
+      readonly headingLevel?: 'h4';
       /**
        * A linked card takes no composed rows. Nesting content inside an anchor
        * is invalid markup, and it is the only route by which the seller-only
@@ -46,7 +47,8 @@ type ListingCardProps = { readonly listing: ListingCardData } & (
     }
   | {
       readonly href?: never;
-      readonly headingLevel?: 'h1';
+      /** Required, so omitting it cannot silently fall through to the index default. */
+      readonly headingLevel: 'h1';
       /** Extra rows — the detail page's seller-only booking reference. */
       readonly children?: ReactNode;
     }
@@ -75,7 +77,7 @@ export function ListingCard({
   headingLevel,
   children,
 }: ListingCardProps) {
-  const Heading = headingLevel ?? 'h3';
+  const Heading = headingLevel ?? 'h4';
 
   const body = (
     <>

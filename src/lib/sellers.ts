@@ -33,8 +33,12 @@ export async function resolveSellerNames(
   const client = await clerkClient();
 
   // Sequential rather than Promise.all: each getUserList is two Backend API
-  // requests (the list plus a companion count), and Clerk documents no rate
-  // limit for it, so a wide fan-out is not something we can reason about.
+  // requests (the list plus a companion count), against a quota shared with
+  // every other server-side Clerk call. The SDK parses `Retry-After` and
+  // surfaces `retryAfter` on its error, so 429s are a real possibility rather
+  // than a theoretical one. No backoff is implemented, and the pages that call
+  // this cannot be cached at the route level, so the fan-out is bounded only
+  // by the batch size — see the note in src/app/listings/page.tsx.
   for (const userId of batches) {
     try {
       const { data } = await client.users.getUserList({

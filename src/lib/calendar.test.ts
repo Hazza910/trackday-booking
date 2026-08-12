@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildMonthGrids, dateAnchorId } from './calendar';
+import { buildMonthGrids, dateAnchorId, type CalendarDay } from './calendar';
 
 function gridFor(dates: string[]) {
   const counts = new Map(dates.map((iso) => [iso, 1]));
@@ -8,10 +8,10 @@ function gridFor(dates: string[]) {
 }
 
 /** Every real day in the grid, in order, as ISO strings. */
-function isoDays(weeks: readonly (unknown | null)[][]) {
+function isoDays(weeks: readonly (CalendarDay | null)[][]) {
   return weeks
     .flat()
-    .filter((cell): cell is { iso: string } => cell !== null && typeof cell === 'object')
+    .filter((cell) => cell !== null)
     .map((cell) => cell.iso);
 }
 
@@ -83,6 +83,36 @@ describe('buildMonthGrids', () => {
       expect(august.weeks[0][5]?.iso).toBe('2026-08-01');
       expect(august.weeks[0][6]?.iso).toBe('2026-08-02');
     });
+  });
+
+  it('orders months across a year boundary', () => {
+    const grids = gridFor(['2027-01-09', '2026-12-05']);
+
+    expect(grids.map((month) => month.key)).toEqual(['2026-12', '2027-01']);
+    expect(grids.map((month) => month.label)).toEqual([
+      'December 2026',
+      'January 2027',
+    ]);
+    // December is the one month where Date.UTC(year, month, 0) has to roll the
+    // month index into the following January to find the last day.
+    expect(isoDays(grids[0].weeks)).toHaveLength(31);
+  });
+
+  it.each([
+    ['2026-11-01', 6], // Sunday start + 30 days = 36 cells, so six rows
+    ['2026-12-01', 5],
+    ['2027-02-01', 4], // Monday start, exactly 28 days
+  ])('uses the fewest whole weeks that fit %s (%i)', (iso, rows) => {
+    const [month] = gridFor([iso]);
+    expect(month.weeks).toHaveLength(rows);
+  });
+
+  it('pads only the tail of the last week', () => {
+    const [december] = gridFor(['2026-12-01']);
+
+    expect(
+      december.weeks.at(-1)?.map((cell) => cell?.dayOfMonth ?? null)
+    ).toEqual([28, 29, 30, 31, null, null, null]);
   });
 
   it('pads every week to seven cells', () => {

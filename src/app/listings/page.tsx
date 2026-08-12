@@ -16,6 +16,22 @@ import { resolveSellerNames } from '@/lib/sellers';
 
 import { ListingCard } from './listing-card';
 
+/**
+ * Per-request, and not by choice.
+ *
+ * `export const revalidate` was tried here and does nothing: the root layout's
+ * Clerk `Show` reads auth state, which makes every route in the app dynamic —
+ * `next build` marks even `/_not-found` as server-rendered on demand, and that
+ * page fetches nothing. So this page cannot be cached at the route level while
+ * the header renders signed-in state.
+ *
+ * That leaves the Clerk fan-out below uncapped against anonymous traffic:
+ * every hit on this public page costs one batch of Backend API calls, against
+ * a quota shared with signed-in paths like `/account`. Flagged in the PR
+ * rather than papered over — the fix is either caching the name lookup with a
+ * request-independent client, or denormalising the display name onto
+ * `listings` from a Clerk webhook, which needs a migration.
+ */
 export const dynamic = 'force-dynamic';
 
 export default async function ListingsPage() {
@@ -45,7 +61,11 @@ export default async function ListingsPage() {
       // Deterministic tiebreak, so two listings at the same price on the same
       // day do not swap places between renders.
       asc(listings.id)
-    );
+    )
+    // A ceiling on a single render. Well above anything the board will hold
+    // for a long while; when it stops being enough, this needs paging rather
+    // than a bigger number.
+    .limit(500);
 
   // One batched lookup for the whole page rather than one call per listing.
   const sellerNames = await resolveSellerNames(rows.map((row) => row.sellerId));

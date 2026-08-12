@@ -1,4 +1,5 @@
 import { WEEKDAY_INITIALS, dateAnchorId, type CalendarMonth } from '@/lib/calendar';
+import { dateFormatter, parseEventDate } from '@/lib/events';
 
 /**
  * Month grids for jumping into a dated list further down the page.
@@ -59,7 +60,9 @@ export function MonthCalendar({
                 <a
                   key={day.iso}
                   href={`#${dateAnchorId(day.iso)}`}
-                  aria-label={`${day.count} ${noun}${day.count === 1 ? '' : 's'} on ${day.iso}`}
+                  // aria-label replaces the visible "17" entirely, so the date
+                  // has to be spoken as a date rather than as an ISO string.
+                  aria-label={`${day.count} ${noun}${day.count === 1 ? '' : 's'} on ${dateFormatter.format(parseEventDate(day.iso))}`}
                   className="rounded bg-indigo-500/10 py-1 text-sm font-semibold tabular-nums text-indigo-700 transition-colors hover:bg-indigo-500/20 dark:text-indigo-300"
                 >
                   {day.dayOfMonth}

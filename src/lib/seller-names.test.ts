@@ -43,24 +43,44 @@ describe('sellerDisplayName', () => {
     );
   });
 
-  it('never discloses a surname or an email address', () => {
-    // Built as a variable, not a fresh literal: excess-property checking would
-    // reject the literal and the guard would prove nothing.
-    const user = {
-      username: null,
-      firstName: null,
+  describe('never discloses a surname or an email address', () => {
+    /**
+     * The surname and email have to sit ALONGSIDE a usable name field: if the
+     * user has neither a username nor a first name, the function returns a
+     * constant and any assertion about it passes whatever the implementation
+     * does with `lastName`.
+     *
+     * Built inside the arrow function so what reaches `sellerDisplayName` is
+     * not a fresh literal — excess-property checking would otherwise reject it
+     * and the extra fields would never be visible to the implementation at all.
+     */
+    const withSurnameAndEmail = (
+      username: string | null,
+      firstName: string | null
+    ) => ({
+      username,
+      firstName,
       lastName: 'Gower',
       fullName: 'Harry Gower',
       primaryEmailAddress: { emailAddress: 'seller@example.com' },
       emailAddresses: [{ emailAddress: 'seller@example.com' }],
-    };
+    });
 
-    const name = sellerDisplayName(user);
+    it('returns the username alone', () => {
+      expect(sellerDisplayName(withSurnameAndEmail('fastharry', 'Harry'))).toBe(
+        'fastharry'
+      );
+    });
 
-    expect(name).toBe(SELLER_FALLBACK_NAME);
-    expect(name).not.toContain('Gower');
-    expect(name).not.toContain('@');
-    expect(name).not.toContain('example.com');
+    it('returns the first name alone', () => {
+      expect(sellerDisplayName(withSurnameAndEmail(null, 'Harry'))).toBe('Harry');
+    });
+
+    it('falls back without reaching for either', () => {
+      expect(sellerDisplayName(withSurnameAndEmail(null, null))).toBe(
+        SELLER_FALLBACK_NAME
+      );
+    });
   });
 });
 
