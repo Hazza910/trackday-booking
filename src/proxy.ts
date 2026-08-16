@@ -4,7 +4,7 @@ import { clerkMiddleware } from '@clerk/nextjs/server';
  * Routes that require an authenticated user. A path matches if it is the
  * prefix itself or a descendant of it (`/account`, `/account/billing`).
  */
-const PROTECTED_PREFIXES = ['/dashboard', '/account'];
+const PROTECTED_PREFIXES = ['/dashboard', '/account', '/purchases'];
 
 function isProtected(pathname: string) {
   return PROTECTED_PREFIXES.some(
