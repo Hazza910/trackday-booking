@@ -48,7 +48,10 @@ export function buyInputSchema(riskWarningRequired: boolean) {
       if (!contactCheck.ok) {
         ctx.addIssue({
           code: 'custom',
-          message: describeContactFilterReasons(contactCheck),
+          message: describeContactFilterReasons(
+            contactCheck,
+            'That name looks like it contains'
+          ),
         });
         return z.NEVER;
       }

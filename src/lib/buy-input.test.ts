@@ -75,6 +75,33 @@ describe('the name on the booking', () => {
     const result = parse({ ...valid, fullName: 'Alex 07700 900123' });
     expect(result.success).toBe(false);
   });
+
+  it.each([
+    "Siobhan O'Brien",
+    'Smith-Jones',
+    'Anne-Marie Dubois',
+    'Jean-Luc de la Croix',
+    "Patrick O'Sullivan",
+    'Mary-Kate Olsen',
+    'Ng Wei Ming',
+    'Bjorn Andersen',
+    'Clive Livingstone',
+    'Dominic Freeman',
+  ])('lets the real name %j through the filter', (fullName) => {
+    // The filter is friction aimed at people routing around the platform, and
+    // it must not become friction aimed at people with apostrophes and hyphens
+    // in their names. Rejecting a buyer's own name at a payment step is a
+    // failure they cannot fix.
+    const result = parse({ ...valid, fullName });
+    expect(result.success && result.data.fullName).toBe(fullName);
+  });
+
+  it('tells the buyer about their name, not about their notes', () => {
+    // The filter is shared with the seller's notes field, whose message would
+    // otherwise tell a buyer to fix "your notes" when they typed a name.
+    const errors = errorsFor({ ...valid, fullName: 'Alex 07700 900123' });
+    expect(errors.fullName?.[0]).toMatch(/^That name looks like it contains/);
+  });
 });
 
 describe('the final-sale gate', () => {

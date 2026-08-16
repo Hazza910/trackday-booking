@@ -111,8 +111,19 @@ const REASON_DESCRIPTIONS: Record<ContactFilterReason, string> = {
   'contact-keyword': 'a way to make contact off-site',
 };
 
-/** Turns a rejection into something a seller can act on. */
-export function describeContactFilterReasons(result: ContactFilterResult) {
+/**
+ * Turns a rejection into something the writer can act on.
+ *
+ * `subject` is the whole lead-in clause rather than a noun, because the verb
+ * has to agree with it — "Your notes look like they contain" against "That
+ * name looks like it contains". The filter is reused across fields, and a
+ * message telling a buyer to fix their "notes" when they typed a name is the
+ * kind of thing that makes people distrust the rest of the page.
+ */
+export function describeContactFilterReasons(
+  result: ContactFilterResult,
+  subject = 'Your notes look like they contain'
+) {
   if (result.ok) {
     return '';
   }
@@ -123,5 +134,5 @@ export function describeContactFilterReasons(result: ContactFilterResult) {
       ? described[0]
       : `${described.slice(0, -1).join(', ')} and ${described.at(-1)}`;
 
-  return `Your notes look like they contain ${listed}. Buyers pay and message through the site, so please take that out.`;
+  return `${subject} ${listed}. Buyers pay and message through the site, so please take that out.`;
 }
