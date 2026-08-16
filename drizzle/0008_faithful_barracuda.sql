@@ -21,7 +21,8 @@ CREATE TABLE "purchases" (
 	"orphaned_at" timestamp with time zone,
 	"transfer_deadline_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "purchases_stripe_session_id_unique" UNIQUE("stripe_session_id")
+	CONSTRAINT "purchases_stripe_session_id_unique" UNIQUE("stripe_session_id"),
+	CONSTRAINT "purchases_risk_consent_recorded" CHECK (NOT "purchases"."risk_warning_required" OR "purchases"."risk_accepted_at" IS NOT NULL)
 );
 --> statement-breakpoint
 ALTER TABLE "listings" ADD COLUMN "current_purchase_id" uuid;--> statement-breakpoint

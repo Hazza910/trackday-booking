@@ -1,6 +1,6 @@
 {
-  "id": "96bc67fa-4be8-44c6-bc8f-c18788d1e6b9",
-  "prevId": "e8ab3e1e-98b4-45a9-bdce-1579dd614437",
+  "id": "83c6bc4b-4c1f-4b3b-94d2-74f01da7e81e",
+  "prevId": "6478b698-78e0-4110-9b0a-bdf118c08b74",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -434,7 +434,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "purchases_risk_consent_recorded": {
+          "name": "purchases_risk_consent_recorded",
+          "value": "NOT \"purchases\".\"risk_warning_required\" OR \"purchases\".\"risk_accepted_at\" IS NOT NULL"
+        }
+      },
       "isRLSEnabled": false
     }
   },

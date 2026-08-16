@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   date,
   index,
   integer,
@@ -266,5 +268,32 @@ export const purchases = pgTable(
     index('purchases_listing_id_idx').on(table.listingId),
     index('purchases_buyer_id_idx').on(table.buyerId),
     index('purchases_state_idx').on(table.state),
+    /**
+     * The conditional consent gate, enforced where the unconditional one
+     * already is. `NOT NULL` covers the final-sale acknowledgement because it
+     * is always required; the at-your-own-risk warning is only shown inside 48
+     * hours of the event, so its column has to stay nullable and needs this
+     * instead.
+     *
+     * The bug it exists to catch is a narrow one and the worst one to have:
+     * a path that works out `riskWarningRequired` correctly but does not carry
+     * the acceptance through with it. That would write a row saying the buyer
+     * had to be warned and no record that they were — on precisely the sales
+     * closest to the event, which are the ones a dispute is most likely to
+     * come from.
+     *
+     * Sound only because `risk_warning_required` is `NOT NULL`: a CHECK
+     * passes on NULL, so a nullable flag here would make the constraint
+     * quietly optional.
+     *
+     * Deliberately one-directional. An acceptance recorded when none was
+     * required is allowed through — harmless, and forbidding it would bind
+     * the shape of the page if the warning is ever shown by choice rather
+     * than only by the 48-hour rule.
+     */
+    check(
+      'purchases_risk_consent_recorded',
+      sql`NOT ${table.riskWarningRequired} OR ${table.riskAcceptedAt} IS NOT NULL`
+    ),
   ]
 );
