@@ -6,11 +6,24 @@ import { z } from 'zod';
 import { db } from '@/db';
 import { events, listings } from '@/db/schema';
 import { dateFormatter, parseEventDate } from '@/lib/events';
+import { listingAvailability } from '@/lib/hold';
 import { sellerDisplayName } from '@/lib/seller-names';
 
 import { ListingCard, ListingCardRow } from '../listing-card';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * How an unavailable listing is described to a buyer. `paid` and `transferred`
+ * are both "sold" from the outside — the difference between them is whether
+ * the seller has done the name change yet, which is our business and the two
+ * parties', not a passing reader's.
+ */
+const UNAVAILABLE_LABEL: Record<string, string> = {
+  paid: 'sold',
+  transferred: 'sold',
+  withdrawn: 'withdrawn',
+};
 
 export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
   const { id } = await props.params;
@@ -35,6 +48,9 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
       bookingReference: listings.bookingReference,
       notes: listings.notes,
       status: listings.status,
+      // Needed to tell a live hold from one that has run out. The row can say
+      // 'pending' long after the hold ended — nothing sweeps them.
+      holdExpiresAt: listings.holdExpiresAt,
       eventTitle: events.title,
       circuit: events.circuit,
       eventDate: events.eventDate,
@@ -52,6 +68,7 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
 
   const { userId } = await auth();
   const isSeller = userId !== null && userId === listing.sellerId;
+  const availability = listingAvailability(listing, new Date());
   const sellerName = sellerDisplayName({
     username: listing.sellerUsername,
     firstName: listing.sellerFirstName,
@@ -66,11 +83,22 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
         </p>
       )}
 
+      {availability === 'being-bought' && (
+        <p className="mb-6 rounded-lg border border-amber-600/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          Someone is part-way through buying this. If they don&rsquo;t finish,
+          it comes back by itself — check again in a few minutes.
+        </p>
+      )}
+
       <p className="mb-4 text-sm text-zinc-500">
         <time dateTime={listing.eventDate}>
           {dateFormatter.format(parseEventDate(listing.eventDate))}
         </time>
-        {listing.status !== 'active' && ` · ${listing.status}`}
+        {/* Not the raw status. A row reading 'pending' with a lapsed hold is
+            available, and says nothing here — and "paid" is our word for it,
+            not a buyer's. */}
+        {availability === 'unavailable' &&
+          ` · ${UNAVAILABLE_LABEL[listing.status] ?? listing.status}`}
       </p>
 
       {/* The card's data type forbids bookingReference and sellerId outright,

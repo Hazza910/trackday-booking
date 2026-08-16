@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { MonthCalendar } from '@/components/month-calendar';
 import { db } from '@/db';
+import { buyableListing } from '@/db/listing-predicates';
 import { events, listings } from '@/db/schema';
 import { buildMonthGrids, dateAnchorId } from '@/lib/calendar';
 import { todayIso } from '@/lib/events';
@@ -50,7 +51,10 @@ export default async function ListingsPage() {
     })
     .from(listings)
     .innerJoin(events, eq(listings.eventId, events.id))
-    .where(and(eq(listings.status, 'active'), gte(events.eventDate, todayIso())))
+    // Not `status = 'active'`: a listing whose buyer's hold has run out is
+    // available again, and nothing sweeps those back — the board is where the
+    // release actually happens for a reader.
+    .where(and(buyableListing(), gte(events.eventDate, todayIso())))
     .orderBy(
       asc(events.eventDate),
       asc(listings.askingPriceInPence),

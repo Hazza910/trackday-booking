@@ -8,6 +8,7 @@ import {
   isHeldByAnother,
   isHoldExpired,
   isHoldLive,
+  listingAvailability,
 } from './hold';
 
 const now = new Date('2026-08-16T12:00:00Z');
@@ -170,6 +171,58 @@ describe('isHeldByAnother', () => {
       expect(isBuyable(listing, now) && isHeldByAnother(listing, now)).toBe(
         false
       );
+    }
+  });
+});
+
+describe('listingAvailability', () => {
+  it('offers an active listing', () => {
+    expect(
+      listingAvailability({ status: 'active', holdExpiresAt: null }, now)
+    ).toBe('available');
+  });
+
+  it('offers a pending listing whose hold has run out', () => {
+    expect(
+      listingAvailability({ status: 'pending', holdExpiresAt: ms(-1) }, now)
+    ).toBe('available');
+  });
+
+  it('reports a live hold as being bought', () => {
+    expect(
+      listingAvailability({ status: 'pending', holdExpiresAt: ms(60_000) }, now)
+    ).toBe('being-bought');
+  });
+
+  it.each(['paid', 'transferred', 'withdrawn'])(
+    'reports a %s listing as unavailable',
+    (status) => {
+      expect(listingAvailability({ status, holdExpiresAt: null }, now)).toBe(
+        'unavailable'
+      );
+    }
+  );
+
+  it('agrees with the predicates it is built from', () => {
+    const listings = [
+      { status: 'active', holdExpiresAt: null },
+      { status: 'active', holdExpiresAt: ms(-1) },
+      { status: 'pending', holdExpiresAt: ms(60_000) },
+      { status: 'pending', holdExpiresAt: ms(-1) },
+      { status: 'pending', holdExpiresAt: new Date(now) },
+      { status: 'pending', holdExpiresAt: null },
+      { status: 'paid', holdExpiresAt: null },
+      { status: 'transferred', holdExpiresAt: null },
+      { status: 'withdrawn', holdExpiresAt: ms(60_000) },
+    ];
+
+    for (const listing of listings) {
+      const state = listingAvailability(listing, now);
+      // The point of the single function: exactly one of these is true, so a
+      // page can never render both "buy this" and "someone is buying this",
+      // or fall through both and render nothing at all.
+      expect(state === 'available').toBe(isBuyable(listing, now));
+      expect(state === 'being-bought').toBe(isHeldByAnother(listing, now));
     }
   });
 });
