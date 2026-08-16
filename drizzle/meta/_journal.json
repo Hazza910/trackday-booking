@@ -57,6 +57,20 @@
       "when": 1786573608186,
       "tag": "0007_seller_deleted_tombstone",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786886709938,
+      "tag": "0008_happy_winter_soldier",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786886721560,
+      "tag": "0009_kind_supernaut",
+      "breakpoints": true
     }
   ]
 }

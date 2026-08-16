@@ -47,6 +47,41 @@ export function parsePoundsToPence(raw: string): ParsedPounds {
   return { ok: true, pence: Number(whole) * 100 + Number(fraction.padEnd(2, '0')) };
 }
 
+/**
+ * The buyer's fee, on top of the seller's asking price and shown as its own
+ * line: £100 + £5 = £105. The seller's own 5% comes off at payout, which is a
+ * later chapter.
+ */
+export const BUYER_FEE_PERCENT = 5;
+
+/**
+ * Rounded half-up to the penny. 5% of a whole-pence price is not always whole
+ * pence, and somebody has to absorb the fraction — half-up puts it on the
+ * platform's side of the line as often as the buyer's.
+ *
+ * The multiplication runs before the division so the intermediate value is an
+ * exact integer; only the final division can land on a fraction, and the .5
+ * cases it produces are exactly representable in binary, so `Math.round` sees
+ * the value it should.
+ */
+export function buyerFeeInPence(askingPriceInPence: number) {
+  if (!Number.isSafeInteger(askingPriceInPence) || askingPriceInPence < 0) {
+    // Not user input — prices are validated into pence long before this — so a
+    // bad value here is a programming error, and rounding it silently would
+    // put a wrong number in front of a buyer.
+    throw new Error(
+      `buyerFeeInPence: expected non-negative integer pence, got ${askingPriceInPence}`
+    );
+  }
+
+  return Math.round((askingPriceInPence * BUYER_FEE_PERCENT) / 100);
+}
+
+/** What the buyer is actually charged. */
+export function buyerTotalInPence(askingPriceInPence: number) {
+  return askingPriceInPence + buyerFeeInPence(askingPriceInPence);
+}
+
 const poundsFormatter = new Intl.NumberFormat('en-GB', {
   style: 'currency',
   currency: 'GBP',

@@ -28,8 +28,8 @@ import { ListingCard } from './listing-card';
 export const dynamic = 'force-dynamic';
 
 export default async function ListingsPage() {
-  // Columns are listed explicitly: bookingReference, buyerId, stripeSessionId
-  // and holdExpiresAt have no business on a public page. sellerId is not
+  // Columns are listed explicitly: bookingReference, holdExpiresAt and
+  // currentPurchaseId have no business on a public page. sellerId is not
   // selected at all any more: the seller's name is denormalised onto the row,
   // so nothing here needs their identity.
   const rows = await db

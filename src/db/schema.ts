@@ -1,7 +1,9 @@
 import {
+  boolean,
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -11,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { GROUP_LEVELS } from '../lib/group-levels';
+import { PURCHASE_STATES } from '../lib/purchase-state';
 
 /** Track day organisers whose events we mirror into the directory. */
 export const providerEnum = pgEnum('provider', ['msv', 'nolimits']);
@@ -115,15 +118,32 @@ export const listings = pgTable(
      */
     bookingReference: text('booking_reference').notNull(),
     notes: text('notes'),
+    /**
+     * The lock on the listing, together with `holdExpiresAt`.
+     *
+     * These two columns are what a buyer's claim conditionally updates, and
+     * Postgres' row lock on this single row is the whole of the double-sell
+     * protection. The claim's predicate must therefore stay answerable from
+     * this row alone — never widen it into something that needs a join.
+     */
     status: listingStatusEnum('status').notNull().default('active'),
     /** When a buyer's hold lapses; null unless a hold is in flight. */
     holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }),
-    /** Clerk user ID of the buyer; null until a hold is taken. */
-    buyerId: text('buyer_id'),
-    stripeSessionId: text('stripe_session_id').unique(),
-    amountPaidInPence: integer('amount_paid_in_pence'),
-    /** Set once the seller confirms the provider name change is done. */
-    transferredAt: timestamp('transferred_at', { withTimezone: true }),
+    /**
+     * The purchase attempt currently holding this listing.
+     *
+     * Deliberately without a foreign key. It is set in the same statement that
+     * inserts the row it points at — a data-modifying CTE, since the Neon HTTP
+     * driver has no transactions — and referential integrity checked part-way
+     * through that statement is a question with a subtle answer. This is a
+     * denormalised pointer for the payment path to check against, not a
+     * relationship: `purchases.listing_id` is the real edge, and it does carry
+     * a foreign key.
+     *
+     * Null when nothing holds the listing. Stale values are harmless — every
+     * reader pairs it with `status` and `holdExpiresAt`.
+     */
+    currentPurchaseId: uuid('current_purchase_id'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -131,5 +151,110 @@ export const listings = pgTable(
   (table) => [
     index('listings_status_idx').on(table.status),
     index('listings_event_id_idx').on(table.eventId),
+  ]
+);
+
+/**
+ * State of one attempt to buy a listing. The partition and the legal
+ * transitions live in src/lib/purchase-state.ts, which is where the enum's
+ * values come from — so adding a state forces a decision about what it means
+ * rather than silently widening the column.
+ */
+export const purchaseStateEnum = pgEnum('purchase_state', PURCHASE_STATES);
+
+/**
+ * One buyer's attempt to buy one listing.
+ *
+ * Separate from `listings` because a listing collects several of these over its
+ * life — lapsed holds, buyers who lose the race, abandoned checkouts — and each
+ * carries its own consent record, buyer details and Stripe session. Held on the
+ * listing itself, every one of those would overwrite the last, and the unique
+ * `stripe_session_id` would leave a second attempt nowhere to go.
+ *
+ * Every transition stamps its own timestamp. That is not bookkeeping for its
+ * own sake: the settlement agent has to be able to judge "is this stalled?"
+ * from the row, without a human explaining the schema to it.
+ */
+export const purchases = pgTable(
+  'purchases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    listingId: uuid('listing_id')
+      .notNull()
+      .references(() => listings.id, { onDelete: 'restrict' }),
+    /** Clerk user ID of the buyer. Buying requires an account. */
+    buyerId: text('buyer_id').notNull(),
+    state: purchaseStateEnum('state').notNull().default('held'),
+
+    /**
+     * The price as it stood when the hold was taken, plus the fee worked out
+     * from it. Snapshotted rather than read back through the listing: this is
+     * the number the buyer was shown, consented to and was charged, and it has
+     * to stay legible after the listing changes or goes away.
+     */
+    askingPriceInPence: integer('asking_price_in_pence').notNull(),
+    buyerFeeInPence: integer('buyer_fee_in_pence').notNull(),
+    totalInPence: integer('total_in_pence').notNull(),
+    /** What Stripe says actually arrived; null until payment confirms. */
+    amountPaidInPence: integer('amount_paid_in_pence'),
+
+    stripeSessionId: text('stripe_session_id').unique(),
+
+    /**
+     * Buyer details for the provider's name change.
+     *
+     * `jsonb` and untyped on purpose: the exact fields each provider needs are
+     * still being confirmed, and a column per field would mean a migration per
+     * answer. Drizzle hands this back as `unknown`, so every read has to go
+     * through Zod — which is the rule anyway, and here the compiler enforces
+     * it. `buyerDetailsVersion` records which field set was collected, so
+     * rows written under an earlier shape stay readable.
+     */
+    buyerDetails: jsonb('buyer_details'),
+    buyerDetailsVersion: text('buyer_details_version'),
+
+    /**
+     * The consent record.
+     *
+     * Nullable because the hold starts at the Buy click, before the buyer has
+     * read anything — so the row exists first and these are stamped when the
+     * boxes are ticked. The database therefore cannot enforce consent; the
+     * payment path must refuse to create a Stripe session while these are
+     * unset.
+     *
+     * `riskWarningRequired` is stored rather than recomputed so that a null
+     * `riskAcceptedAt` is never ambiguous: it separates "was not asked,
+     * because the event was far enough out" from "was asked and did not
+     * accept". Fixed at claim time, from the event date.
+     */
+    finalSaleAcceptedAt: timestamp('final_sale_accepted_at', {
+      withTimezone: true,
+    }),
+    riskWarningRequired: boolean('risk_warning_required').notNull(),
+    riskAcceptedAt: timestamp('risk_accepted_at', { withTimezone: true }),
+    /** Which wording the buyer was shown, for the record in a dispute. */
+    consentVersion: text('consent_version'),
+
+    /** When this attempt's claim on the listing lapses. */
+    holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }).notNull(),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    expiredAt: timestamp('expired_at', { withTimezone: true }),
+    orphanedAt: timestamp('orphaned_at', { withTimezone: true }),
+    /**
+     * When the seller must have completed the name change by. Stamped at
+     * payment rather than derived on read, so the deadline quoted in the email
+     * and the one the settlement agent judges against are the same value.
+     */
+    transferDeadlineAt: timestamp('transfer_deadline_at', {
+      withTimezone: true,
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('purchases_listing_id_idx').on(table.listingId),
+    index('purchases_buyer_id_idx').on(table.buyerId),
+    index('purchases_state_idx').on(table.state),
   ]
 );
