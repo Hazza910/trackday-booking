@@ -96,3 +96,26 @@ export function isHeldByAnother(listing: BuyableListing, now: Date) {
     listing.status === 'pending' && !isHoldExpired(listing.holdExpiresAt, now)
   );
 }
+
+/**
+ * What a page should say about a listing, as one exhaustive answer.
+ *
+ * Derived from the two predicates above rather than re-deriving the rule, so a
+ * page cannot end up rendering both "buy this" and "someone else is buying
+ * this", or — worse — neither. `unavailable` covers the states a buyer can do
+ * nothing with: sold, transferred, withdrawn.
+ */
+export type ListingAvailability = 'available' | 'being-bought' | 'unavailable';
+
+export function listingAvailability(
+  listing: BuyableListing,
+  now: Date
+): ListingAvailability {
+  if (isBuyable(listing, now)) {
+    return 'available';
+  }
+  if (isHeldByAnother(listing, now)) {
+    return 'being-bought';
+  }
+  return 'unavailable';
+}

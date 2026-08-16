@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { MonthCalendar } from '@/components/month-calendar';
 import { db } from '@/db';
+import { buyableListing } from '@/db/listing-predicates';
 import { events, listings } from '@/db/schema';
 import { buildMonthGrids } from '@/lib/calendar';
 import {
@@ -39,10 +40,13 @@ export default async function Home() {
     .from(events)
     .leftJoin(
       listings,
-      // The status test belongs in the ON clause. In WHERE it would discard
-      // the NULL-extended rows, quietly turning this into an inner join and
-      // dropping every event that has no listings.
-      and(eq(listings.eventId, events.id), eq(listings.status, 'active'))
+      // The buyability test belongs in the ON clause. In WHERE it would
+      // discard the NULL-extended rows, quietly turning this into an inner
+      // join and dropping every event that has no listings.
+      //
+      // Same predicate as the board, so the "3 for sale" badge and the three
+      // listings it links to cannot disagree.
+      and(eq(listings.eventId, events.id), buyableListing())
     )
     .where(gte(events.eventDate, todayIso()))
     .groupBy(events.id)
