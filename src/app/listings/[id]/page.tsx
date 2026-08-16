@@ -1,5 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import { eq } from 'drizzle-orm';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
 
@@ -7,6 +8,7 @@ import { db } from '@/db';
 import { events, listings } from '@/db/schema';
 import { dateFormatter, parseEventDate } from '@/lib/events';
 import { listingAvailability } from '@/lib/hold';
+import { buyerTotalInPence, formatPence } from '@/lib/money';
 import { sellerDisplayName } from '@/lib/seller-names';
 
 import { ListingCard, ListingCardRow } from '../listing-card';
@@ -127,6 +129,21 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
           </ListingCardRow>
         )}
       </ListingCard>
+
+      {availability === 'available' && !isSeller && (
+        <div className="mt-8 flex items-center gap-3">
+          <Link
+            href={`/listings/${listing.id}/buy`}
+            className="rounded-md bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400"
+          >
+            Buy this place
+          </Link>
+          <span className="text-xs text-zinc-500">
+            {formatPence(buyerTotalInPence(listing.askingPriceInPence))} including
+            the 5% buyer fee
+          </span>
+        </div>
+      )}
 
       <p className="mt-8 text-sm text-zinc-500">
         <a
