@@ -32,4 +32,10 @@ Clerk auth, Stripe, Tailwind, Vitest + Playwright.
 - Zod validation at every boundary. Never `as SomeType`.
 - Money = integer pence. Timestamps = timezone-aware UTC, stored UTC.
 - Import env from `src/env.ts`, never `process.env` directly.
+- **No transactions.** The app runs on the Neon HTTP driver, where
+  `db.transaction()` throws outright. Anything that must be atomic has to be a
+  single statement — use a data-modifying CTE (`WITH claimed AS (UPDATE ...
+  RETURNING ...) INSERT ...`) rather than two calls and a hope. Sibling CTEs
+  share one snapshot and cannot see each other's writes, so pass values between
+  them through `RETURNING`. Never assume a multi-statement sequence is safe.
 @AGENTS.md
