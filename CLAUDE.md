@@ -13,6 +13,11 @@ MSV and No Limits) rather than to free-text dates.
 - Run `pnpm tsc --noEmit` and tests before claiming a task done.
 - Never modify existing migration files — generate new ones.
 - Flag race conditions or unhandled failure paths; don't work around them.
+- `status = 'pending'` does not imply a live sale. Holds are released lazily, so
+  a listing sits at `pending` indefinitely after its hold lapses. Any path that
+  reads raw status must use the derived predicate (`buyableListing()` in SQL,
+  `isBuyable` in TypeScript) or say in a comment why raw status is right there.
+  Check this whenever you touch status-reading code.
 - All work goes on a feature branch (`feat/`, `fix/`, `docs/` prefix) with a PR to main. Never commit directly to main.
 - Open PRs with `gh`, but never merge them — merging is done by a human after review.
 
