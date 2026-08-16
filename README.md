@@ -59,11 +59,6 @@ uses the pooled one.
 
 ## Roadmap
 
-- **Automated event ingestion** — a daily cron job that fetches provider
-  schedules and uses the Claude API to extract structured events (circuit,
-  date, group levels, source URL) into the directory, replacing manual entry.
-- **Stripe Connect seller payouts** — pay sellers directly once a transfer is
-  confirmed, with funds held until the name change is done.
-- **Provider partnerships** — work with organisers such as MSV and No Limits
-  to formalise the transfer step, ideally reaching direct API confirmation of
-  a name change instead of a manual seller declaration.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for what is shipped, what is being
+built, and what is deliberately held back — including automated event
+ingestion, Stripe Connect seller payouts and provider partnerships.
