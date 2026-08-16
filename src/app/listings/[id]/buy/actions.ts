@@ -28,6 +28,7 @@ function readValues(formData: FormData): BuyFormValues {
 
   return {
     fullName: read('fullName'),
+    email: read('email'),
     acceptFinalSale: read('acceptFinalSale'),
     acceptRisk: read('acceptRisk'),
   };
@@ -131,7 +132,7 @@ export async function startPurchase(
     // Guaranteed non-'on' only when the warning was not required — validation
     // above refuses the submit otherwise.
     riskAcceptedAt: riskWarningRequired ? now : null,
-    buyerDetails: { fullName: parsed.data.fullName },
+    buyerDetails: { fullName: parsed.data.fullName, email: parsed.data.email },
   });
 
   if (!claim.ok) {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { buyInputSchema } from './buy-input';
-import { FULL_NAME_MAX_LENGTH } from './buyer-details';
+import { EMAIL_MAX_LENGTH, FULL_NAME_MAX_LENGTH } from './buyer-details';
+import { checkForContactDetails } from './contact-filter';
 import {
   CONSENT_VERSION,
   FINAL_SALE_CONSENT,
@@ -10,6 +11,7 @@ import {
 
 const valid = {
   fullName: 'Alex Rider',
+  email: 'alex@example.com',
   acceptFinalSale: 'on',
   acceptRisk: 'on',
 };
@@ -101,6 +103,52 @@ describe('the name on the booking', () => {
     // otherwise tell a buyer to fix "your notes" when they typed a name.
     const errors = errorsFor({ ...valid, fullName: 'Alex 07700 900123' });
     expect(errors.fullName?.[0]).toMatch(/^That name looks like it contains/);
+  });
+});
+
+describe('the buyer email', () => {
+  it('accepts an ordinary address', () => {
+    const result = parse(valid);
+    expect(result.success && result.data.email).toBe('alex@example.com');
+  });
+
+  it('trims surrounding whitespace', () => {
+    const result = parse({ ...valid, email: '  alex@example.com  ' });
+    expect(result.success && result.data.email).toBe('alex@example.com');
+  });
+
+  it('is required', () => {
+    expect(errorsFor({ ...valid, email: '' }).email).toBeDefined();
+  });
+
+  it.each(['not-an-email', 'alex@', '@example.com', 'alex example.com'])(
+    'rejects %j',
+    (email) => {
+      expect(parse({ ...valid, email }).success).toBe(false);
+    }
+  );
+
+  it('rejects an address past the RFC length limit', () => {
+    const tooLong = `${'a'.repeat(EMAIL_MAX_LENGTH)}@example.com`;
+    expect(errorsFor({ ...valid, email: tooLong }).email).toEqual([
+      'That email address is too long.',
+    ]);
+  });
+
+  it('is exempt from the contact filter', () => {
+    // The booking-reference precedent: a field whose whole purpose is to carry
+    // a contact detail, and whose format is validated, must not be run through
+    // a filter built to catch contact details hidden in free text. Filtering it
+    // would reject every valid value — including this one.
+    expect(checkForContactDetails('alex@example.com').ok).toBe(false);
+    expect(parse({ ...valid, email: 'alex@example.com' }).success).toBe(true);
+  });
+
+  it('accepts an address that differs from the account signed in with', () => {
+    // Prefilled from Clerk, but the provider account may use another address.
+    expect(
+      parse({ ...valid, email: 'different@provider-account.co.uk' }).success
+    ).toBe(true);
   });
 });
 

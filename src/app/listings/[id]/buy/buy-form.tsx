@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useActionState } from 'react';
 
 import { EMPTY_BUY_FORM_STATE } from '@/lib/buy-form-state';
-import { FULL_NAME_MAX_LENGTH } from '@/lib/buyer-details';
+import { EMAIL_MAX_LENGTH, FULL_NAME_MAX_LENGTH } from '@/lib/buyer-details';
 import { FINAL_SALE_CONSENT, RISK_CONSENT } from '@/lib/consent';
 
 import { startPurchase } from './actions';
@@ -39,10 +39,13 @@ export function BuyForm({
   listingId,
   riskWarningRequired,
   isSignedIn,
+  defaultEmail,
 }: {
   listingId: string;
   riskWarningRequired: boolean;
   isSignedIn: boolean;
+  /** The signed-in account's address, or '' when signed out. */
+  defaultEmail: string;
 }) {
   const [state, formAction, pending] = useActionState(
     startPurchase,
@@ -82,6 +85,31 @@ export function BuyForm({
           to the provider.
         </p>
         <FieldError id={errorId('fullName')} messages={state.fieldErrors.fullName} />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="email" className={labelClassName}>
+          Email
+        </label>
+        {/* Prefilled from the account they signed in with, but editable: the
+            provider sends the transferred booking to whatever address is on
+            the provider account, which is not always the same one. */}
+        <input
+          id="email"
+          name="email"
+          type="email"
+          maxLength={EMAIL_MAX_LENGTH}
+          autoComplete="email"
+          defaultValue={state.values.email || defaultEmail}
+          aria-invalid={state.fieldErrors.email !== undefined}
+          aria-describedby={describedBy('email')}
+          className={fieldClassName}
+        />
+        <p className={hintClassName}>
+          The email on your provider account, if that is different from the one
+          you signed in with.
+        </p>
+        <FieldError id={errorId('email')} messages={state.fieldErrors.email} />
       </div>
 
       <div className="flex flex-col gap-3 rounded-lg border border-black/10 p-4 dark:border-white/15">
