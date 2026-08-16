@@ -1,6 +1,6 @@
 {
-  "id": "535c8fa9-25e5-4b8c-8bba-bc003d836322",
-  "prevId": "31144b09-3d51-47fc-8480-139d9d375e46",
+  "id": "96bc67fa-4be8-44c6-bc8f-c18788d1e6b9",
+  "prevId": "e8ab3e1e-98b4-45a9-bdce-1579dd614437",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -303,7 +303,7 @@
           "name": "final_sale_accepted_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "risk_warning_required": {
           "name": "risk_warning_required",
@@ -321,7 +321,7 @@
           "name": "consent_version",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "hold_expires_at": {
           "name": "hold_expires_at",

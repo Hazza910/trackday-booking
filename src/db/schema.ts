@@ -191,6 +191,14 @@ export const purchases = pgTable(
      * from it. Snapshotted rather than read back through the listing: this is
      * the number the buyer was shown, consented to and was charged, and it has
      * to stay legible after the listing changes or goes away.
+     *
+     * The fee and total are computed in TypeScript from a price read a moment
+     * before the claim, while the asking price comes from the row the claim
+     * actually updated — so the claim's predicate carries an
+     * `asking_price_in_pence = $n` guard. A price that moved underneath the
+     * buyer fails the claim instead of writing a row whose fee does not match
+     * its price. Nothing can edit a price today; the guard is there so that
+     * staying true is not contingent on that remaining so.
      */
     askingPriceInPence: integer('asking_price_in_pence').notNull(),
     buyerFeeInPence: integer('buyer_fee_in_pence').notNull(),
@@ -216,24 +224,26 @@ export const purchases = pgTable(
     /**
      * The consent record.
      *
-     * Nullable because the hold starts at the Buy click, before the buyer has
-     * read anything — so the row exists first and these are stamped when the
-     * boxes are ticked. The database therefore cannot enforce consent; the
-     * payment path must refuse to create a Stripe session while these are
-     * unset.
+     * `NOT NULL` because the row does not exist until the buyer has consented.
+     * The boxes are ticked on the pre-payment page and the claim fires on its
+     * submit, so there is no window in which a purchase exists without a
+     * recorded acceptance — the database enforces it rather than the payment
+     * path having to remember to. The hold's ten minutes therefore cover the
+     * payment itself, not the time spent filling in the form.
      *
-     * `riskWarningRequired` is stored rather than recomputed so that a null
-     * `riskAcceptedAt` is never ambiguous: it separates "was not asked,
-     * because the event was far enough out" from "was asked and did not
-     * accept". Fixed at claim time, from the event date.
+     * `riskAcceptedAt` stays nullable: the warning is only shown inside 48
+     * hours of the event. `riskWarningRequired` is stored rather than
+     * recomputed so that a null there is never ambiguous — it separates "was
+     * not asked, because the event was far enough out" from "was asked and did
+     * not accept". Fixed at claim time, from the event date.
      */
     finalSaleAcceptedAt: timestamp('final_sale_accepted_at', {
       withTimezone: true,
-    }),
+    }).notNull(),
     riskWarningRequired: boolean('risk_warning_required').notNull(),
     riskAcceptedAt: timestamp('risk_accepted_at', { withTimezone: true }),
     /** Which wording the buyer was shown, for the record in a dispute. */
-    consentVersion: text('consent_version'),
+    consentVersion: text('consent_version').notNull(),
 
     /** When this attempt's claim on the listing lapses. */
     holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }).notNull(),
