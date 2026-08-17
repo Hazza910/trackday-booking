@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { eq } from 'drizzle-orm';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -29,6 +29,21 @@ function Blocked({ heading, children }: { heading: string; children: React.React
       </p>
     </main>
   );
+}
+
+/**
+ * The signed-in account's primary email, for prefilling only. Degrades to no
+ * prefill rather than failing the page — the buyer can type it, and validation
+ * happens on what they submit either way.
+ */
+async function buyerEmail() {
+  try {
+    const user = await currentUser();
+    return user?.primaryEmailAddress?.emailAddress ?? '';
+  } catch (error: unknown) {
+    console.error('buy page: could not read the buyer email', error);
+    return '';
+  }
 }
 
 export default async function BuyPage(props: PageProps<'/listings/[id]/buy'>) {
@@ -110,6 +125,12 @@ export default async function BuyPage(props: PageProps<'/listings/[id]/buy'>) {
     );
   }
 
+  // One Clerk Backend API call, only for a signed-in buyer on a page they
+  // reached deliberately. The quota worry that drove denormalising seller names
+  // was anonymous traffic on public pages hitting Clerk on every render; this
+  // is neither. A failure here costs a prefill, not the sale.
+  const defaultEmail = userId === null ? '' : await buyerEmail();
+
   const riskWarningRequired = isWithinRiskWindow(listing.eventDate, now);
   const fee = buyerFeeInPence(listing.askingPriceInPence);
   const total = buyerTotalInPence(listing.askingPriceInPence);
@@ -154,6 +175,7 @@ export default async function BuyPage(props: PageProps<'/listings/[id]/buy'>) {
         listingId={listing.id}
         riskWarningRequired={riskWarningRequired}
         isSignedIn={userId !== null}
+        defaultEmail={defaultEmail}
       />
     </main>
   );

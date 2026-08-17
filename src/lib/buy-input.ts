@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { BuyFieldName } from './buy-form-state';
-import { FULL_NAME_MAX_LENGTH } from './buyer-details';
+import { EMAIL_MAX_LENGTH, FULL_NAME_MAX_LENGTH } from './buyer-details';
 import {
   checkForContactDetails,
   describeContactFilterReasons,
@@ -58,6 +58,24 @@ export function buyInputSchema(riskWarningRequired: boolean) {
 
       return value;
     }),
+
+    /**
+     * Deliberately **not** run through the contact filter, on the
+     * booking-reference precedent: a field whose whole purpose is to carry a
+     * contact detail, and whose format is validated, does not need a filter
+     * designed to catch contact details smuggled into free text. Filtering it
+     * would reject every valid value.
+     *
+     * The provider needs an address to send the transferred booking to, and it
+     * is not necessarily the one the buyer signed in with — hence prefilled
+     * from Clerk but editable.
+     */
+    email: z
+      .string('Enter the email for your provider account.')
+      .trim()
+      .max(EMAIL_MAX_LENGTH, 'That email address is too long.')
+      .pipe(z.email('Enter a valid email address.')),
+
     acceptFinalSale: acceptance(
       'You need to accept that the sale is final before you can buy.'
     ),

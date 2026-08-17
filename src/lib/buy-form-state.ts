@@ -8,6 +8,7 @@
 
 export type BuyFormValues = {
   readonly fullName: string;
+  readonly email: string;
   /** Checkboxes arrive as 'on' when ticked and are absent when not. */
   readonly acceptFinalSale: string;
   readonly acceptRisk: string;
@@ -32,6 +33,7 @@ export type BuyFormState = {
 
 export const EMPTY_BUY_FORM_VALUES: BuyFormValues = {
   fullName: '',
+  email: '',
   acceptFinalSale: '',
   acceptRisk: '',
 };

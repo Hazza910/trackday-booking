@@ -5,11 +5,12 @@ import { notFound } from 'next/navigation';
 import { z } from 'zod';
 
 import { db } from '@/db';
-import { events, listings } from '@/db/schema';
+import { events, listings, purchases } from '@/db/schema';
 import { dateFormatter, parseEventDate } from '@/lib/events';
 import { listingAvailability } from '@/lib/hold';
 import { buyerTotalInPence, formatPence } from '@/lib/money';
 import { sellerDisplayName } from '@/lib/seller-names';
+import { readStoredBuyerDetails } from '@/lib/stored-buyer-details';
 
 import { ListingCard, ListingCardRow } from '../listing-card';
 
@@ -53,6 +54,11 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
       // Needed to tell a live hold from one that has run out. The row can say
       // 'pending' long after the hold ended — nothing sweeps them.
       holdExpiresAt: listings.holdExpiresAt,
+      // Only ever read when the viewer is the seller and the sale is paid for.
+      // Left-joined rather than fetched separately so the gate below is the one
+      // place the rule lives.
+      purchaseState: purchases.state,
+      buyerDetails: purchases.buyerDetails,
       eventTitle: events.title,
       circuit: events.circuit,
       eventDate: events.eventDate,
@@ -61,6 +67,7 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
     })
     .from(listings)
     .innerJoin(events, eq(listings.eventId, events.id))
+    .leftJoin(purchases, eq(purchases.id, listings.currentPurchaseId))
     .where(eq(listings.id, parsedId.data))
     .limit(1);
 
@@ -71,6 +78,20 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
   const { userId } = await auth();
   const isSeller = userId !== null && userId === listing.sellerId;
   const availability = listingAvailability(listing, new Date());
+
+  /**
+   * Buyer details are shown to the seller, and only once the money has
+   * arrived. Both halves matter: before payment there is nothing owed in
+   * either direction, and to anyone who is not the seller these are somebody
+   * else's name and email on a page anyone can open.
+   *
+   * `jsonb` reads back as `unknown`, so it goes through Zod — and the schema
+   * tolerates rows written before email was collected.
+   */
+  const buyerDetails =
+    isSeller && listing.purchaseState === 'paid'
+      ? readStoredBuyerDetails(listing.buyerDetails)
+      : null;
   const sellerName = sellerDisplayName({
     username: listing.sellerUsername,
     firstName: listing.sellerFirstName,
@@ -127,6 +148,19 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
           >
             {listing.bookingReference}
           </ListingCardRow>
+        )}
+
+        {buyerDetails !== null && (
+          <>
+            <ListingCardRow label="Buyer's name">
+              {buyerDetails.fullName}
+            </ListingCardRow>
+            {buyerDetails.email !== undefined && (
+              <ListingCardRow label="Buyer's email">
+                {buyerDetails.email}
+              </ListingCardRow>
+            )}
+          </>
         )}
       </ListingCard>
 
