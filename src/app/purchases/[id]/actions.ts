@@ -7,8 +7,8 @@ import { z } from 'zod';
 
 import { db } from '@/db';
 import { purchases } from '@/db/schema';
+import { checkoutSessionParams } from '@/lib/checkout-session';
 import { isHoldLive } from '@/lib/hold';
-import { formatPence } from '@/lib/money';
 import { stripe } from '@/lib/stripe';
 
 /**
@@ -20,9 +20,6 @@ import { stripe } from '@/lib/stripe';
  * expects, and a thrown error surfaces as the component's own error state
  * rather than a broken page.
  */
-
-/** How long Stripe will hold a session open. Its own floor is 30 minutes. */
-const SESSION_LIFETIME_SECONDS = 30 * 60;
 
 /**
  * Where Stripe sends the buyer back to.
@@ -96,52 +93,40 @@ export async function fetchCheckoutClientSecret(
 
   // Recover an existing session rather than opening a second one. A buyer who
   // refreshes would otherwise leave a trail of live sessions against one
-  // purchase, and `stripe_session_id` is unique — the second write would fail
-  // anyway, after the money had somewhere to go.
+  // purchase, and `stripe_session_id` is unique — a second session could not be
+  // recorded against the row, so the webhook would never find it.
   if (purchase.stripeSessionId !== null) {
     const existing = await client.checkout.sessions.retrieve(
       purchase.stripeSessionId
     );
+
     if (existing.status === 'open' && existing.client_secret !== null) {
       return existing.client_secret;
     }
+
+    // Not reusable, and deliberately not replaced. Verified against the API:
+    // an expired session returns a null `client_secret`, so there is nothing
+    // to hand back, and opening a replacement would strand it behind the
+    // unique column. Both branches below are close to unreachable — the hold
+    // is ten minutes and a session lasts thirty, so a live hold outliving its
+    // session cannot normally happen — but they say something true rather than
+    // failing obscurely if it ever does.
+    throw new Error(
+      existing.status === 'complete'
+        ? 'That payment has already gone through. Give us a moment to confirm it.'
+        : 'This payment session has expired. Go back to the listing and start again.'
+    );
   }
 
-  const session = await client.checkout.sessions.create({
-    ui_mode: 'embedded',
-    mode: 'payment',
-    // Stripe will not hold a session open for less than 30 minutes, so this
-    // cannot be pinned to the 10-minute hold. A payment can therefore land
-    // after the hold lapsed — handled as `orphaned` by the webhook, not
-    // designed away here, because Stripe does not allow it to be.
-    expires_at: Math.floor(Date.now() / 1000) + SESSION_LIFETIME_SECONDS,
-    // Two line items, not one total: the buyer sees what the seller asked for
-    // and what we added, on Stripe's page as well as ours.
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: 'gbp',
-          unit_amount: purchase.askingPriceInPence,
-          product_data: { name: 'Track day place' },
-        },
-      },
-      {
-        quantity: 1,
-        price_data: {
-          currency: 'gbp',
-          unit_amount: purchase.buyerFeeInPence,
-          product_data: {
-            name: `Buyer fee (5% of ${formatPence(purchase.askingPriceInPence)})`,
-          },
-        },
-      },
-    ],
-    // The webhook trusts this to find the purchase, so it is set at creation
-    // and never derived from anything the browser sends back.
-    metadata: { purchaseId: purchase.id },
-    return_url: `${await appOrigin()}/purchases/${purchase.id}?session_id={CHECKOUT_SESSION_ID}`,
-  });
+  const session = await client.checkout.sessions.create(
+    checkoutSessionParams({
+      purchaseId: purchase.id,
+      askingPriceInPence: purchase.askingPriceInPence,
+      buyerFeeInPence: purchase.buyerFeeInPence,
+      returnUrl: `${await appOrigin()}/purchases/${purchase.id}?session_id={CHECKOUT_SESSION_ID}`,
+      nowSeconds: Math.floor(Date.now() / 1000),
+    })
+  );
 
   if (session.client_secret === null) {
     throw new Error('Payment could not be started.');
