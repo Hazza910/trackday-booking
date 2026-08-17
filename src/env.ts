@@ -1,37 +1,19 @@
 import { z } from 'zod';
 
+import { envSchema } from './env-schema';
+
 /**
  * Validated environment. Import `env` from here — never read `process.env`
  * directly (see CLAUDE.md).
  *
  * Server-only: this module validates `CLERK_SECRET_KEY`, so it must not be
  * imported from a Client Component. In the browser the secret is absent and
- * validation would throw.
+ * validation would throw. Anything the browser genuinely needs — the Stripe
+ * publishable key, for one — travels as a prop from a Server Component.
+ *
+ * The rules themselves live in `env-schema.ts` so they can be tested without
+ * this module's import-time parse getting in the way.
  */
-const envSchema = z.object({
-  /** Pooled Neon connection — used by the app at runtime. */
-  DATABASE_URL: z.url(),
-  /**
-   * Direct (non-pooled) Neon connection. Migrations, dumps and logical
-   * replication must not go through PgBouncer, so drizzle-kit prefers this.
-   */
-  DATABASE_URL_UNPOOLED: z.url().optional(),
-  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().startsWith('pk_'),
-  CLERK_SECRET_KEY: z.string().startsWith('sk_'),
-  /**
-   * Signs the Clerk webhooks that keep seller names current. Optional so the
-   * app still boots without it — the webhook route is the only thing that
-   * needs it, and it fails closed with a 500 rather than taking down every
-   * other page at import time.
-   */
-  // An empty value counts as absent: `FOO=` in .env.local yields '', and
-  // treating that as a validation failure would throw at import and take down
-  // every page, when the intent is that only the webhook route is affected.
-  CLERK_WEBHOOK_SIGNING_SECRET: z.preprocess(
-    (value) => (value === '' ? undefined : value),
-    z.string().startsWith('whsec_').optional()
-  ),
-});
 
 /**
  * Each variable is listed explicitly rather than passing `process.env` as a
@@ -45,6 +27,10 @@ const parsed = envSchema.safeParse({
     process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
   CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
   CLERK_WEBHOOK_SIGNING_SECRET: process.env.CLERK_WEBHOOK_SIGNING_SECRET,
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+  STRIPE_WEBHOOK_SIGNING_SECRET: process.env.STRIPE_WEBHOOK_SIGNING_SECRET,
 });
 
 if (!parsed.success) {
