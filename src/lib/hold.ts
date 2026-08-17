@@ -52,6 +52,26 @@ export function holdRemainingMs(expiresAt: Date | null, now: Date) {
 }
 
 /**
+ * How long is left, for a buyer looking at their own hold.
+ *
+ * Rounded down, and vague under a minute rather than counting seconds: this is
+ * rendered on the server and read some seconds later, so a precise number would
+ * be a precisely wrong one. The live countdown on the purchase page is the
+ * place for exactness.
+ */
+export function formatHoldRemaining(remainingMs: number) {
+  if (remainingMs <= 0) {
+    return 'expired';
+  }
+  if (remainingMs < 60_000) {
+    return 'under a minute left';
+  }
+
+  const minutes = Math.floor(remainingMs / 60_000);
+  return `${minutes} minute${minutes === 1 ? '' : 's'} left`;
+}
+
+/**
  * The listing columns the claim's predicate is allowed to look at. Narrowed to
  * exactly these two on purpose — the guard is a conditional UPDATE on one
  * `listings` row, and Postgres' lock on that row is what serialises two buyers
