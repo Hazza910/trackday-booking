@@ -1,12 +1,18 @@
-import { and, asc, eq, gte } from 'drizzle-orm';
+import { and, asc, eq, gte, or } from 'drizzle-orm';
+import { auth } from '@clerk/nextjs/server';
 import Link from 'next/link';
 
 import { MonthCalendar } from '@/components/month-calendar';
 import { db } from '@/db';
-import { buyableListing } from '@/db/listing-predicates';
-import { events, listings } from '@/db/schema';
+import {
+  buyableListing,
+  heldByViewer,
+  viewerHoldsItColumn,
+} from '@/db/listing-predicates';
+import { events, listings, purchases } from '@/db/schema';
 import { buildMonthGrids, dateAnchorId } from '@/lib/calendar';
 import { todayIso } from '@/lib/events';
+import { formatHoldRemaining, holdRemainingMs } from '@/lib/hold';
 import {
   countByDate,
   groupByMonthAndDay,
@@ -29,6 +35,9 @@ import { ListingCard } from './listing-card';
 export const dynamic = 'force-dynamic';
 
 export default async function ListingsPage() {
+  const { userId } = await auth();
+  const now = new Date();
+
   // Columns are listed explicitly: bookingReference, holdExpiresAt and
   // currentPurchaseId have no business on a public page. sellerId is not
   // selected at all any more: the seller's name is denormalised onto the row,
@@ -44,6 +53,13 @@ export default async function ListingsPage() {
       askingPriceInPence: listings.askingPriceInPence,
       originalPriceInPence: listings.originalPriceInPence,
       notes: listings.notes,
+      // A boolean computed in SQL, not the buyer's id. A lapsed-hold listing is
+      // returned to everyone, and selecting the previous holder's Clerk id onto
+      // a public page's query — even unrendered — is the thing this select
+      // deliberately avoids everywhere else. The comparison happens in the
+      // database; only the answer comes back.
+      heldByYou: viewerHoldsItColumn(userId),
+      holdExpiresAt: purchases.holdExpiresAt,
       eventTitle: events.title,
       circuit: events.circuit,
       eventDate: events.eventDate,
@@ -51,10 +67,21 @@ export default async function ListingsPage() {
     })
     .from(listings)
     .innerJoin(events, eq(listings.eventId, events.id))
+    .leftJoin(purchases, eq(purchases.id, listings.currentPurchaseId))
     // Not `status = 'active'`: a listing whose buyer's hold has run out is
     // available again, and nothing sweeps those back — the board is where the
     // release actually happens for a reader.
-    .where(and(buyableListing(), gte(events.eventDate, todayIso())))
+    //
+    // The second clause puts a viewer's own held listing back on the board.
+    // Buyability alone hides it, which left a buyer who navigated away with no
+    // route back to a purchase they were part-way through paying for. For a
+    // signed-out reader the clause is dropped entirely and nothing changes.
+    .where(
+      and(
+        or(buyableListing(), heldByViewer(userId)),
+        gte(events.eventDate, todayIso())
+      )
+    )
     .orderBy(
       asc(events.eventDate),
       asc(listings.askingPriceInPence),
@@ -112,14 +139,37 @@ export default async function ListingsPage() {
                   </h3>
 
                   <ul className="mt-3 flex flex-col gap-3">
-                    {day.rows.map((row) => (
+                    {day.rows.map((row) => {
+                      // The query only returns a held listing to the person
+                      // holding it — the permission lives in the predicate, so
+                      // this only decides how it is presented.
+                      const heldByYou = row.heldByYou === true;
+
+                      return (
                       <li
                         key={row.id}
                         id={row.anchorId ?? undefined}
                         className="scroll-mt-6"
                       >
+                        {heldByYou && (
+                          <p className="mb-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-400">
+                            You&rsquo;re part-way through buying this —{' '}
+                            {formatHoldRemaining(
+                              holdRemainingMs(row.holdExpiresAt, now)
+                            )}
+                          </p>
+                        )}
                         <ListingCard
-                          href={`/listings/${row.id}`}
+                          // The whole card goes to the buy page for the holder,
+                          // so anywhere they tap continues the purchase. The
+                          // buy page redirects a live hold to its purchase and
+                          // shows the form again if it has lapsed, so this link
+                          // stays right either way.
+                          href={
+                            heldByYou
+                              ? `/listings/${row.id}/buy`
+                              : `/listings/${row.id}`
+                          }
                           listing={{
                             id: row.id,
                             eventTitle: row.eventTitle,
@@ -138,7 +188,8 @@ export default async function ListingsPage() {
                           }}
                         />
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 </section>
               ))}

@@ -7,7 +7,11 @@ import { z } from 'zod';
 import { db } from '@/db';
 import { events, listings, purchases } from '@/db/schema';
 import { dateFormatter, parseEventDate } from '@/lib/events';
-import { listingAvailability } from '@/lib/hold';
+import {
+  formatHoldRemaining,
+  holdRemainingMs,
+  listingAvailability,
+} from '@/lib/hold';
 import { buyerTotalInPence, formatPence } from '@/lib/money';
 import { sellerDisplayName } from '@/lib/seller-names';
 import { readStoredBuyerDetails } from '@/lib/stored-buyer-details';
@@ -58,6 +62,7 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
       // Left-joined rather than fetched separately so the gate below is the one
       // place the rule lives.
       purchaseState: purchases.state,
+      purchaseBuyerId: purchases.buyerId,
       buyerDetails: purchases.buyerDetails,
       eventTitle: events.title,
       circuit: events.circuit,
@@ -77,7 +82,19 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
 
   const { userId } = await auth();
   const isSeller = userId !== null && userId === listing.sellerId;
-  const availability = listingAvailability(listing, new Date());
+  const now = new Date();
+  const availability = listingAvailability(listing, now);
+
+  /**
+   * Whose the current hold is. Only consulted under the `being-bought` branch
+   * below, which is what establishes that the hold is live at all.
+   *
+   * Until there is a "my purchases" page, the link this unlocks is the *only*
+   * route a buyer has back to a purchase once they navigate away — without it
+   * they are locked out of something they are part-way through paying for.
+   */
+  const currentHoldIsMine =
+    userId !== null && listing.purchaseBuyerId === userId;
 
   /**
    * Buyer details are shown to the seller, and only once the money has
@@ -106,12 +123,27 @@ export default async function ListingPage(props: PageProps<'/listings/[id]'>) {
         </p>
       )}
 
-      {availability === 'being-bought' && (
-        <p className="mb-6 rounded-lg border border-amber-600/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          Someone is part-way through buying this. If they don&rsquo;t finish,
-          it comes back by itself — check again in a few minutes.
-        </p>
-      )}
+      {availability === 'being-bought' &&
+        (currentHoldIsMine ? (
+          // The holder is the person reading this. Telling them somebody else
+          // is buying it is both wrong and alarming, and it used to leave them
+          // with no way back to their own purchase.
+          <p className="mb-6 rounded-lg border border-indigo-600/40 bg-indigo-500/5 px-4 py-3 text-sm text-indigo-700 dark:text-indigo-400">
+            You&rsquo;re part-way through buying this.{' '}
+            <Link
+              href={`/listings/${listing.id}/buy`}
+              className="font-medium underline underline-offset-4"
+            >
+              Continue
+            </Link>{' '}
+            — {formatHoldRemaining(holdRemainingMs(listing.holdExpiresAt, now))}.
+          </p>
+        ) : (
+          <p className="mb-6 rounded-lg border border-amber-600/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            Someone is part-way through buying this. If they don&rsquo;t finish,
+            it comes back by itself — check again in a few minutes.
+          </p>
+        ))}
 
       <p className="mb-4 text-sm text-zinc-500">
         <time dateTime={listing.eventDate}>

@@ -1,6 +1,6 @@
-import { and, eq, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gt, lte, or, sql } from 'drizzle-orm';
 
-import { listings } from './schema';
+import { listings, purchases } from './schema';
 
 /**
  * The SQL half of the buyability rule.
@@ -33,4 +33,52 @@ export function buyableListing() {
     // moves it back.
     and(eq(listings.status, 'pending'), lte(listings.holdExpiresAt, sql`now()`))
   );
+}
+
+/**
+ * A listing the given viewer is currently holding.
+ *
+ * The complement of `buyableListing()` from one person's point of view: that
+ * predicate correctly hides a held listing from everyone, which also hid it
+ * from the one person who most needed to find it. Requires a join to
+ * `purchases` on `listings.current_purchase_id`.
+ *
+ * Returns undefined for a signed-out viewer, which drizzle drops from the
+ * surrounding `or()` — so an anonymous reader sees exactly what they did
+ * before, with no extra clause and no way to probe for somebody else's hold.
+ */
+function viewerHoldsIt(viewerId: string) {
+  return and(
+    eq(purchases.buyerId, viewerId),
+    eq(purchases.state, 'held'),
+    // `>` not `>=`, the mirror of the expiry rule: a hold ending exactly now is
+    // over, and this listing is buyable again rather than still theirs.
+    gt(purchases.holdExpiresAt, sql`now()`)
+  );
+}
+
+export function heldByViewer(viewerId: string | null) {
+  if (viewerId === null) {
+    return undefined;
+  }
+
+  return and(eq(listings.status, 'pending'), viewerHoldsIt(viewerId));
+}
+
+/**
+ * The same question as a selectable boolean, for deciding how to render a row.
+ *
+ * Built from the same conditions as the predicate above rather than a second
+ * copy, because the two disagreeing is a specific and ugly bug: a lapsed hold
+ * of the viewer's own would come back through `buyableListing()` and then be
+ * captioned "you're part-way through buying this — expired".
+ *
+ * A boolean, never the buyer's id: a lapsed-hold listing is returned to
+ * everyone, and the previous holder's Clerk id has no business travelling to a
+ * public page even unrendered.
+ */
+export function viewerHoldsItColumn(viewerId: string | null) {
+  return viewerId === null
+    ? sql<boolean>`false`
+    : sql<boolean>`${viewerHoldsIt(viewerId)}`;
 }
