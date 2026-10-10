@@ -38,6 +38,21 @@ what has been refunded in Stripe until refunds get a state of their own.
 A payment for a session that **no purchase row carries** — logged as
 `PAYMENT NEEDS A REFUND — no purchase carries this session`. With nothing in the
 database, the log line and the Stripe Dashboard are the only places it shows.
-The checkout action is written so this should not happen (a session id is
-stored before its client secret reaches a browser, and a losing tab's session
-is never shown), so one appearing is a bug as well as a refund.
+Before treating one as a refund, rule out the two harmless causes:
+
+- **Another environment on the same Stripe account.** Every endpoint, and
+  every `stripe listen`, receives every event for the account and mode. A test
+  payment made against local dev is also delivered to the deployed endpoint,
+  which has no row for it, and the reverse. While dev and production share the
+  test-mode account, expect these whenever both are taking payments.
+- **`stripe trigger checkout.session.completed`.** The CLI fixture pays a
+  session that no purchase ever created.
+
+Check the session's `metadata.purchaseId` (logged with the alert) against the
+environment it came from. If neither cause applies, it is a real refund, and a
+bug too: the checkout action stores a session id before its client secret
+reaches a browser, and a losing tab's session is never shown.
+
+**Before real traffic**, give each environment its own Stripe sandbox, or put
+an environment marker in the session metadata and ignore other environments'
+sessions, so this alert only ever means a refund.

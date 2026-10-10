@@ -23,6 +23,11 @@ export type PaymentContext = {
   readonly purchaseId: string;
   /** What the listing currently points at; null when nothing holds it. */
   readonly currentPurchaseId: string | null;
+  /**
+   * Whether the track day is already over when the money lands — the same
+   * `eventDate < todayIso()` test the buy action uses to refuse a claim.
+   */
+  readonly eventIsPast: boolean;
 };
 
 export function decidePayment(context: PaymentContext): PaymentDecision {
@@ -35,6 +40,15 @@ export function decidePayment(context: PaymentContext): PaymentDecision {
   // A later claim expired this attempt, which means another buyer took the
   // listing. The payment arrived too late whatever the listing says now.
   if (context.state === 'expired') {
+    return 'orphan';
+  }
+
+  // Money for a day that has already happened. A card payment gets here only
+  // by straddling midnight — the buy action refuses past events and a session
+  // lives thirty minutes — but a delayed method such as Bacs can confirm days
+  // after checkout, and nobody can be given a place on a day that is over. A
+  // refund, not a sale.
+  if (context.eventIsPast) {
     return 'orphan';
   }
 
@@ -57,9 +71,7 @@ export function decidePayment(context: PaymentContext): PaymentDecision {
  *
  * Anything else is `unexpected`, which the route logs loudly rather than
  * acknowledging in silence. The endpoint subscribes to these three types only,
- * so a different type arriving means the endpoint is misconfigured — most
- * likely created with Stripe's *thin* payload format, whose types are named
- * differently and would otherwise be dropped without a trace.
+ * so a different type arriving means its subscriptions are misconfigured.
  */
 export type EventDecision =
   | 'record-payment'

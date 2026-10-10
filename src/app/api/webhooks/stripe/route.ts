@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import type Stripe from 'stripe';
+import Stripe from 'stripe';
 
 import {
   markOrphaned,
@@ -9,6 +9,7 @@ import {
 } from '@/db/record-payment';
 import { env } from '@/env';
 import { transferDeadlineAt } from '@/lib/event-timing';
+import { todayIso } from '@/lib/events';
 import { decideEvent, decidePayment } from '@/lib/payment-decision';
 import { stripe } from '@/lib/stripe';
 
@@ -25,9 +26,10 @@ import { stripe } from '@/lib/stripe';
  * The endpoint must be created with the **snapshot** payload format, pinned to
  * the API version the installed `stripe` package pins, and subscribed to the
  * three `checkout.session.*` types `decideEvent` handles. Stripe's Dashboard
- * now defaults new destinations to *thin* payloads; those verify, carry
- * different type names, and would never record a payment. `decideEvent` flags
- * them as unexpected so that mistake is loud.
+ * now defaults new destinations to *thin* payloads. Those pass signature
+ * verification, but the SDK refuses to build an event from them, so they would
+ * never record a payment; the catch below names that case instead of calling
+ * it a bad signature.
  *
  * The buyer's browser is never trusted to confirm payment — it controls the
  * return URL. This is the only thing that moves a purchase to `paid`.
@@ -86,6 +88,9 @@ async function recordPayment(
     state: purchase.state,
     purchaseId: purchase.id,
     currentPurchaseId: purchase.currentPurchaseId,
+    // Checked here rather than in markPaid's WHERE: an event's date never
+    // moves, so reading it a moment before the write gives the same answer.
+    eventIsPast: purchase.eventDate < todayIso(),
   });
 
   switch (decision) {
@@ -159,8 +164,25 @@ export async function POST(request: NextRequest) {
       env.STRIPE_WEBHOOK_SIGNING_SECRET
     );
   } catch (error: unknown) {
-    console.error('stripe webhook: signature verification failed', error);
-    return new Response('Invalid signature', { status: 400 });
+    // The message only, never the error object: Stripe's verification error
+    // carries the whole payload as a property, and a Checkout Session payload
+    // includes the buyer's name and email.
+    if (error instanceof Stripe.errors.StripeSignatureVerificationError) {
+      console.error(
+        `stripe webhook: signature verification failed: ${error.message}`
+      );
+      return new Response('Invalid signature', { status: 400 });
+    }
+
+    // Verified, but not an event this SDK can build. In practice that is a
+    // thin payload — the SDK throws for those after the signature passes — so
+    // the endpoint was created with the wrong payload format. A 400 keeps the
+    // deliveries failing visibly in Stripe until it is fixed.
+    console.error(
+      'stripe webhook: verified payload is not a snapshot event — the endpoint must use the snapshot payload format',
+      error instanceof Error ? error.message : 'unknown error'
+    );
+    return new Response('Unsupported event payload', { status: 400 });
   }
 
   if (
@@ -168,8 +190,9 @@ export async function POST(request: NextRequest) {
     event.type !== 'checkout.session.async_payment_succeeded' &&
     event.type !== 'checkout.session.async_payment_failed'
   ) {
-    // Acknowledged so Stripe stops retrying, but never silently: see the
-    // module comment on thin payloads.
+    // Acknowledged so Stripe stops retrying, but never silently: the endpoint
+    // subscribes to these three types only, so anything else means its
+    // subscriptions have drifted.
     console.error(
       `stripe webhook: unexpected event type ${event.type} — check the endpoint's payload format and subscriptions`
     );

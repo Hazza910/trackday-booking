@@ -6,10 +6,15 @@ import { PURCHASE_STATES, type PurchaseState } from './purchase-state';
 const MINE = '11111111-1111-4111-8111-111111111111';
 const THEIRS = '22222222-2222-4222-8222-222222222222';
 
-const context = (state: PurchaseState, currentPurchaseId: string | null) => ({
+const context = (
+  state: PurchaseState,
+  currentPurchaseId: string | null,
+  eventIsPast = false
+) => ({
   state,
   purchaseId: MINE,
   currentPurchaseId,
+  eventIsPast,
 });
 
 describe('decidePayment', () => {
@@ -47,6 +52,19 @@ describe('decidePayment', () => {
       }
     }
   );
+
+  it('orphans a payment that lands after the track day, even if still held', () => {
+    // A delayed method (Bacs) can confirm days after checkout. The listing may
+    // still point here because nobody can claim a past event, which would
+    // otherwise sell a place on a day that is over.
+    expect(decidePayment(context('held', MINE, true))).toBe('orphan');
+  });
+
+  it('still treats a replay for a past event as already recorded', () => {
+    expect(decidePayment(context('paid', MINE, true))).toBe(
+      'already-recorded'
+    );
+  });
 
   it('decides something for every state in the enum', () => {
     // Adding a purchase state without deciding what a completed payment means
@@ -94,7 +112,7 @@ describe('decideEvent', () => {
   });
 
   it.each([
-    // Thin-payload names: what a misconfigured endpoint would deliver.
+    // Types the endpoint should not be subscribed to.
     'v1.checkout.session.completed',
     'checkout.session.expired',
     'payment_intent.succeeded',
