@@ -6,6 +6,7 @@ import {
   holdRemainingMs,
   isBuyable,
   isHeldByAnother,
+  formatHoldRemaining,
   isHoldExpired,
   isHoldLive,
   listingAvailability,
@@ -223,6 +224,39 @@ describe('listingAvailability', () => {
       // or fall through both and render nothing at all.
       expect(state === 'available').toBe(isBuyable(listing, now));
       expect(state === 'being-bought').toBe(isHeldByAnother(listing, now));
+    }
+  });
+});
+
+describe('formatHoldRemaining', () => {
+  it('counts whole minutes down', () => {
+    expect(formatHoldRemaining(10 * 60_000)).toBe('10 minutes left');
+    expect(formatHoldRemaining(7 * 60_000 + 30_000)).toBe('7 minutes left');
+  });
+
+  it('uses the singular for one minute', () => {
+    expect(formatHoldRemaining(90_000)).toBe('1 minute left');
+    expect(formatHoldRemaining(60_000)).toBe('1 minute left');
+  });
+
+  it('goes vague under a minute rather than counting seconds', () => {
+    // Rendered on the server and read some seconds later, so a precise number
+    // would be a precisely wrong one.
+    expect(formatHoldRemaining(59_999)).toBe('under a minute left');
+    expect(formatHoldRemaining(1)).toBe('under a minute left');
+  });
+
+  it('says expired at zero and below', () => {
+    expect(formatHoldRemaining(0)).toBe('expired');
+    expect(formatHoldRemaining(-1)).toBe('expired');
+  });
+
+  it('never rounds up past the time actually left', () => {
+    // Telling a buyer they have longer than they do is the one direction that
+    // costs them the purchase.
+    for (const ms of [61_000, 119_000, 121_000, 599_000]) {
+      const claimed = Number(formatHoldRemaining(ms).split(' ')[0]);
+      expect(claimed * 60_000).toBeLessThanOrEqual(ms);
     }
   });
 });
