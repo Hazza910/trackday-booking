@@ -43,3 +43,45 @@ export function decidePayment(context: PaymentContext): PaymentDecision {
   // `held` while the pointer has moved or gone.
   return context.currentPurchaseId === context.purchaseId ? 'pay' : 'orphan';
 }
+
+/**
+ * What a Stripe event means for us, before any purchase is looked up.
+ *
+ * `checkout.session.completed` does not mean money arrived. With a delayed
+ * payment method — Bacs, Pay by Bank — the session completes with
+ * `payment_status = 'unpaid'` and the money is confirmed days later by
+ * `checkout.session.async_payment_succeeded`. Recording a payment on the first
+ * would sell the place before it was paid for. Checkout's payment methods come
+ * from the Dashboard rather than from `checkout-session.ts`, so whether delayed
+ * methods are on is not something this code controls.
+ *
+ * Anything else is `unexpected`, which the route logs loudly rather than
+ * acknowledging in silence. The endpoint subscribes to these three types only,
+ * so a different type arriving means the endpoint is misconfigured — most
+ * likely created with Stripe's *thin* payload format, whose types are named
+ * differently and would otherwise be dropped without a trace.
+ */
+export type EventDecision =
+  | 'record-payment'
+  | 'awaiting-async-payment'
+  | 'async-payment-failed'
+  | 'unexpected';
+
+export function decideEvent(
+  type: string,
+  paymentStatus: string | null
+): EventDecision {
+  switch (type) {
+    case 'checkout.session.completed':
+    case 'checkout.session.async_payment_succeeded':
+      // Only `paid` is money. `no_payment_required` cannot happen for a
+      // non-zero total, and is not treated as payment if it ever does.
+      return paymentStatus === 'paid'
+        ? 'record-payment'
+        : 'awaiting-async-payment';
+    case 'checkout.session.async_payment_failed':
+      return 'async-payment-failed';
+    default:
+      return 'unexpected';
+  }
+}

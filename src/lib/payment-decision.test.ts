@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { decidePayment } from './payment-decision';
+import { decideEvent, decidePayment } from './payment-decision';
 import { PURCHASE_STATES, type PurchaseState } from './purchase-state';
 
 const MINE = '11111111-1111-4111-8111-111111111111';
@@ -69,5 +69,36 @@ describe('decidePayment', () => {
         }
       }
     }
+  });
+});
+
+describe('decideEvent', () => {
+  it.each([
+    'checkout.session.completed',
+    'checkout.session.async_payment_succeeded',
+  ])('records a payment for %s only once Stripe says paid', (type) => {
+    expect(decideEvent(type, 'paid')).toBe('record-payment');
+    // A delayed payment method completes the session before the money lands.
+    // Selling the place on that would sell it unpaid.
+    expect(decideEvent(type, 'unpaid')).toBe('awaiting-async-payment');
+    expect(decideEvent(type, 'no_payment_required')).toBe(
+      'awaiting-async-payment'
+    );
+    expect(decideEvent(type, null)).toBe('awaiting-async-payment');
+  });
+
+  it('never records a payment from a failed async payment', () => {
+    expect(decideEvent('checkout.session.async_payment_failed', 'paid')).toBe(
+      'async-payment-failed'
+    );
+  });
+
+  it.each([
+    // Thin-payload names: what a misconfigured endpoint would deliver.
+    'v1.checkout.session.completed',
+    'checkout.session.expired',
+    'payment_intent.succeeded',
+  ])('flags %s as unexpected rather than ignoring it', (type) => {
+    expect(decideEvent(type, 'paid')).toBe('unexpected');
   });
 });

@@ -9,6 +9,7 @@ import {
 } from '@/db/record-payment';
 import { env } from '@/env';
 import { transferDeadlineAt } from '@/lib/event-timing';
+import { decideEvent, decidePayment } from '@/lib/payment-decision';
 import { stripe } from '@/lib/stripe';
 
 /**
@@ -20,6 +21,13 @@ import { stripe } from '@/lib/stripe';
  * bare domain 308-redirects and webhook deliveries do not follow redirects.
  * That cost us a morning with Clerk; it is written down here so it does not
  * cost another.
+ *
+ * The endpoint must be created with the **snapshot** payload format, pinned to
+ * the API version the installed `stripe` package pins, and subscribed to the
+ * three `checkout.session.*` types `decideEvent` handles. Stripe's Dashboard
+ * now defaults new destinations to *thin* payloads; those verify, carry
+ * different type names, and would never record a payment. `decideEvent` flags
+ * them as unexpected so that mistake is loud.
  *
  * The buyer's browser is never trusted to confirm payment — it controls the
  * return URL. This is the only thing that moves a purchase to `paid`.
@@ -43,18 +51,23 @@ function describe(outcome: PaymentOutcome) {
   }
 }
 
-async function handleCompletedSession(
+async function orphan(
+  stripeSessionId: string,
+  purchaseId: string,
+  amountPaidInPence: number
+): Promise<PaymentOutcome> {
+  const orphanedId = await markOrphaned({ stripeSessionId, amountPaidInPence });
+  return orphanedId === null
+    ? { kind: 'already-recorded', purchaseId }
+    : { kind: 'orphaned', purchaseId: orphanedId };
+}
+
+async function recordPayment(
   session: Stripe.Checkout.Session
 ): Promise<PaymentOutcome> {
   const purchase = await purchaseForSession(session.id);
   if (purchase === null) {
     return { kind: 'unknown-session' };
-  }
-
-  if (purchase.state === 'paid' || purchase.state === 'orphaned') {
-    // A replay, or two deliveries racing. Nothing to do, and saying so is not
-    // an error — Stripe is allowed to deliver more than once.
-    return { kind: 'already-recorded', purchaseId: purchase.id };
   }
 
   // What Stripe says arrived, not what we asked for. They should match; if they
@@ -69,42 +82,53 @@ async function handleCompletedSession(
     });
   }
 
-  // The listing has moved on if it no longer points at this purchase. The
-  // purchase's own state says the same thing when a later claim expired it —
-  // both are checked, because a listing that was withdrawn or sold by another
-  // route leaves the purchase untouched at `held`.
-  const listingMovedOn = purchase.currentPurchaseId !== purchase.id;
-  if (purchase.state === 'expired' || listingMovedOn) {
-    const orphanedId = await markOrphaned({
-      stripeSessionId: session.id,
-      amountPaidInPence,
-    });
-    return orphanedId === null
-      ? { kind: 'already-recorded', purchaseId: purchase.id }
-      : { kind: 'orphaned', purchaseId: orphanedId };
-  }
-
-  const paid = await markPaid({
-    stripeSessionId: session.id,
-    amountPaidInPence,
-    transferDeadlineAt: transferDeadlineAt(new Date(), purchase.eventDate),
+  const decision = decidePayment({
+    state: purchase.state,
+    purchaseId: purchase.id,
+    currentPurchaseId: purchase.currentPurchaseId,
   });
 
-  if (paid === null) {
-    // Lost to a concurrent delivery, or the listing moved between the read
-    // above and the write. Re-deciding from a fresh read would risk a loop, so
-    // this hands it to the orphan path, which is conditional and safe to run
-    // when it turns out not to apply.
-    const orphanedId = await markOrphaned({
-      stripeSessionId: session.id,
-      amountPaidInPence,
-    });
-    return orphanedId === null
-      ? { kind: 'already-recorded', purchaseId: purchase.id }
-      : { kind: 'orphaned', purchaseId: orphanedId };
-  }
+  switch (decision) {
+    case 'already-recorded':
+      // A replay, or two deliveries racing. Nothing to do, and saying so is
+      // not an error — Stripe is allowed to deliver more than once.
+      return { kind: 'already-recorded', purchaseId: purchase.id };
 
-  return { kind: 'paid', purchaseId: paid.purchaseId, listingId: paid.listingId };
+    case 'orphan':
+      return orphan(session.id, purchase.id, amountPaidInPence);
+
+    case 'pay': {
+      const paid = await markPaid({
+        stripeSessionId: session.id,
+        amountPaidInPence,
+        transferDeadlineAt: transferDeadlineAt(new Date(), purchase.eventDate),
+      });
+
+      if (paid === null) {
+        // Lost to a concurrent delivery, or the listing moved between the read
+        // above and the write. Re-deciding from a fresh read would risk a
+        // loop, so this hands it to the orphan path, which is conditional and
+        // matches nothing when it turns out not to apply.
+        return orphan(session.id, purchase.id, amountPaidInPence);
+      }
+
+      if (paid.kind === 'listing-only') {
+        // Thrown, not handled: the listing is sold and the purchase is not
+        // paid, which the state machine says cannot happen. A retry cannot
+        // repair it — markPaid will match nothing now — so this needs a human,
+        // and the 500 keeps it red in Stripe's delivery log as well as here.
+        throw new Error(
+          `listing ${paid.listingId} marked paid but purchase ${paid.purchaseId} was not held`
+        );
+      }
+
+      return {
+        kind: 'paid',
+        purchaseId: paid.purchaseId,
+        listingId: paid.listingId,
+      };
+    }
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -139,22 +163,71 @@ export async function POST(request: NextRequest) {
     return new Response('Invalid signature', { status: 400 });
   }
 
-  if (event.type !== 'checkout.session.completed') {
-    // Acknowledged so Stripe stops retrying. Only one event type moves money
-    // in this flow; the rest are noise until refunds exist.
+  if (
+    event.type !== 'checkout.session.completed' &&
+    event.type !== 'checkout.session.async_payment_succeeded' &&
+    event.type !== 'checkout.session.async_payment_failed'
+  ) {
+    // Acknowledged so Stripe stops retrying, but never silently: see the
+    // module comment on thin payloads.
+    console.error(
+      `stripe webhook: unexpected event type ${event.type} — check the endpoint's payload format and subscriptions`
+    );
     return ok();
   }
 
+  const session = event.data.object;
+
+  switch (decideEvent(event.type, session.payment_status)) {
+    case 'unexpected':
+      // Unreachable given the guard above; kept so the switch stays exhaustive
+      // if `decideEvent` ever learns a type the guard does not.
+      console.error(`stripe webhook: unexpected event type ${event.type}`);
+      return ok();
+
+    case 'awaiting-async-payment':
+      // The session completed but the money has not landed. Nothing moves:
+      // the hold lapses as normal, and `async_payment_succeeded` records it if
+      // it arrives — as an orphan if somebody else took the listing meanwhile.
+      console.log(
+        `stripe webhook: session ${session.id} completed unpaid (${session.payment_status}), awaiting async payment`
+      );
+      return ok();
+
+    case 'async-payment-failed':
+      // No state to change: the purchase is still `held` and its hold lapses
+      // like any abandoned attempt.
+      console.log(
+        `stripe webhook: async payment failed for session ${session.id}`
+      );
+      return ok();
+
+    case 'record-payment':
+      break;
+  }
+
   try {
-    const outcome = await handleCompletedSession(event.data.object);
+    const outcome = await recordPayment(session);
 
     if (outcome.kind === 'orphaned') {
-      // A buyer has paid for something they cannot be given. Console-only for
-      // now, which is not good enough — the alert is routed through the
-      // notification module in the next PR, along with the seller's sold email.
+      // A buyer has paid for something they cannot be given.
+      // TODO(notifications): console-only is not good enough. Route this
+      // through the notifications module as an email to Harry before real
+      // traffic — see the PR that introduced this route.
       console.error(
         'stripe webhook: PAYMENT NEEDS A REFUND — listing had already gone',
-        { purchaseId: outcome.purchaseId, sessionId: event.data.object.id }
+        { purchaseId: outcome.purchaseId, sessionId: session.id }
+      );
+    } else if (outcome.kind === 'unknown-session') {
+      // Money arrived and no purchase row carries the session. Nothing in the
+      // database will ever surface this one, so the log line is the only
+      // record outside Stripe. TODO(notifications): same alert as above.
+      console.error(
+        'stripe webhook: PAYMENT NEEDS A REFUND — no purchase carries this session',
+        {
+          sessionId: session.id,
+          purchaseIdFromMetadata: session.metadata?.purchaseId ?? null,
+        }
       );
     } else {
       console.log(`stripe webhook: ${describe(outcome)}`);

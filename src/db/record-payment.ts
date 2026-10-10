@@ -57,46 +57,78 @@ export async function purchaseForSession(stripeSessionId: string) {
 /**
  * Moves a purchase to `paid` and its listing to sold, in one statement.
  *
- * The listing update carries `current_purchase_id = p.id`, which is the guard
- * that stops a late payment selling a listing somebody else now holds. Without
- * it, a session completing after its hold lapsed would take a listing that had
- * already been re-claimed and hand it to the wrong buyer.
+ * The listing is the gate, and is written first. Its update carries
+ * `current_purchase_id = p.id`, which is the guard that stops a late payment
+ * selling a listing somebody else now holds: a session completing after its
+ * hold lapsed and the listing was re-claimed matches nothing here.
  *
- * Returns zero rows if the purchase is no longer `held`, or if the listing has
- * moved on — the caller decides which, because those mean very different
- * things.
+ * The order is load-bearing. Postgres runs every data-modifying CTE to
+ * completion whether or not the outer statement uses its rows, so a purchase
+ * update placed in a CTE ahead of the listing would commit `paid` even when the
+ * listing guard rejected the payment — and the orphan path, which matches only
+ * `held` or `expired`, could then never record it. Driving the purchase update
+ * from the listing's `RETURNING` means it cannot run unless the listing moved.
+ *
+ * `listings.status = 'pending'` reads raw status on purpose, not
+ * `buyableListing()`. The question is "does this purchase still own the
+ * listing", not "could a new buyer take it": a lapsed hold that nobody
+ * re-claimed still points here, and a payment landing in that window is
+ * accepted rather than refunded. It also makes a second delivery for the same
+ * session a clean no-op — once the first commits, the row-lock re-check sees
+ * `paid` and matches nothing.
+ *
+ * Returns null if nothing moved. `listing-only` means the listing moved but the
+ * purchase did not, which should be impossible — the claim changes a purchase
+ * only alongside the listing pointer, and nothing else takes a purchase out of
+ * `held` while the pointer still names it. It is reported rather than assumed
+ * away so the caller can shout.
  */
 export async function markPaid(input: {
   readonly stripeSessionId: string;
   readonly amountPaidInPence: number;
   readonly transferDeadlineAt: Date;
-}) {
+}): Promise<{
+  readonly kind: 'paid' | 'listing-only';
+  readonly purchaseId: string;
+  readonly listingId: string;
+} | null> {
   const result = await db.execute(sql`
-    WITH p AS (
+    WITH l AS (
+      UPDATE listings
+         SET status = 'paid', hold_expires_at = NULL
+        FROM purchases p
+       WHERE p.stripe_session_id = ${input.stripeSessionId}
+         AND p.state = 'held'
+         AND listings.id = p.listing_id
+         AND listings.current_purchase_id = p.id
+         AND listings.status = 'pending'
+      RETURNING listings.id AS listing_id, p.id AS purchase_id
+    ),
+    paid AS (
       UPDATE purchases
          SET state                = 'paid',
              paid_at              = now(),
              amount_paid_in_pence = ${input.amountPaidInPence},
              transfer_deadline_at = ${input.transferDeadlineAt}::timestamptz
-       WHERE stripe_session_id = ${input.stripeSessionId}
-         AND state = 'held'
-      RETURNING id, listing_id
+        FROM l
+       WHERE purchases.id = l.purchase_id
+         AND purchases.state = 'held'
+      RETURNING purchases.id
     )
-    UPDATE listings
-       SET status = 'paid', hold_expires_at = NULL
-      FROM p
-     WHERE listings.id = p.listing_id
-       AND listings.current_purchase_id = p.id
-    RETURNING listings.id AS listing_id, p.id AS purchase_id
+    SELECT l.listing_id, l.purchase_id, paid.id AS paid_id
+      FROM l
+      LEFT JOIN paid ON paid.id = l.purchase_id
   `);
 
   const [row] = result.rows;
-  return row
-    ? {
-        purchaseId: String(row.purchase_id),
-        listingId: String(row.listing_id),
-      }
-    : null;
+  if (row === undefined) {
+    return null;
+  }
+  return {
+    kind: row.paid_id === null ? 'listing-only' : 'paid',
+    purchaseId: String(row.purchase_id),
+    listingId: String(row.listing_id),
+  };
 }
 
 /**
